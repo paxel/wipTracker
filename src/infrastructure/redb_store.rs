@@ -19,6 +19,7 @@ const META: TableDefinition<'_, &str, &str> = TableDefinition::new("meta");
 const KEY_STACK: &str = "stack";
 const KEY_HISTORY: &str = "history";
 const KEY_NEXT_NUMBER: &str = "next_number";
+const KEY_DEFAULT_TIMER: &str = "default_timer";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
 const KEY_WINDOW_POS: &str = "window_pos";
@@ -101,6 +102,11 @@ impl Store for RedbStore {
         let next_number = parse(read_meta(KEY_NEXT_NUMBER)?)?
             .and_then(|value| value.as_u64())
             .unwrap_or(1);
+        let default_timer = parse(read_meta(KEY_DEFAULT_TIMER)?)?
+            .map(serde_json::from_value::<std::time::Duration>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .unwrap_or_default();
         let show_duration = parse(read_meta(KEY_SHOW_DURATION)?)?
             .and_then(|value| value.as_bool())
             .unwrap_or(true);
@@ -120,6 +126,7 @@ impl Store for RedbStore {
             stack,
             history,
             next_number,
+            default_timer,
             show_duration,
             decorated,
             window_pos,
@@ -159,6 +166,10 @@ impl Store for RedbStore {
             put(KEY_STACK, &serde_json::json!(snapshot.stack))?;
             put(KEY_HISTORY, &serde_json::json!(snapshot.history))?;
             put(KEY_NEXT_NUMBER, &serde_json::json!(snapshot.next_number))?;
+            put(
+                KEY_DEFAULT_TIMER,
+                &serde_json::json!(snapshot.default_timer),
+            )?;
             put(
                 KEY_SHOW_DURATION,
                 &serde_json::json!(snapshot.show_duration),
@@ -238,6 +249,7 @@ mod tests {
             stack: vec![PAUSE_ID, 1],
             history,
             next_number: 2,
+            default_timer: Duration::from_secs(3600),
             show_duration: false,
             decorated: Some(true),
             window_pos: Some((120.0, 40.0)),

@@ -1,5 +1,7 @@
 # WipTracker
 
+<img src="assets/icon.png" alt="WipTracker" width="96" align="right">
+
 A one-line, always-on-top bar that shows the task you are focused on right now.
 
 Everything else you are juggling sits on a stack underneath it. Time is only collected for
@@ -10,11 +12,14 @@ actually went — not how long a ticket was open.
 
 ![What each part of the bar does](docs/bar-anatomy.svg)
 
-| Where     | Left click | Right click            | Middle click       |
-| --------- | ---------- | ---------------------- | ------------------ |
-| task name | —          | rename                 | open the task list |
-| `+`       | new task   | finish the current one | take a break       |
-| `≡`       | menu       | —                      | —                  |
+| Where       | Left click | Right click            | Middle click        |
+| ----------- | ---------- | ---------------------- | ------------------- |
+| drag handle | move       | —                      | —                   |
+| task name   | rename     | —                      | show the task stack |
+| `+`         | new task   | finish the current one | take a break        |
+| `≡`         | menu       | —                      | —                   |
+
+Every control says the same on hover, so the table is a reminder, not something to learn.
 
 ## Install
 
@@ -30,7 +35,8 @@ tar -xzf wiptracker-*-linux-x86_64.tar.gz
 
 **Windows** — unpack the zip and run `wiptracker.exe`.
 
-**macOS** — unpack the zip and move `WipTracker.app` to `/Applications`. The build is not
+**macOS** — open the `.dmg` (one universal build, Apple Silicon and Intel) and move
+`WipTracker.app` to `/Applications`. The build is not
 signed with an Apple Developer certificate, so Gatekeeper will refuse it on first launch
 ("WipTracker is damaged"). Clear the quarantine flag once:
 
@@ -38,33 +44,43 @@ signed with an Apple Developer certificate, so Gatekeeper will refuse it on firs
 xattr -cr /Applications/WipTracker.app
 ```
 
-Scoop and Homebrew packaging will follow in
-[paxel/scoop-bucket](https://github.com/paxel/scoop-bucket) and
-[paxel/homebrew-tap](https://github.com/paxel/homebrew-tap).
+Or use the package managers — each release pushes a formula and a manifest:
+
+```sh
+brew install paxel/tap/wiptracker
+scoop bucket add paxel https://github.com/paxel/scoop-bucket
+scoop install wiptracker
+```
 
 ## Usage
 
-**Start a task.** Left-click `+`. A task called `new task 1` appears on the bar and its
-clock starts. The number never repeats, so `new task 7` means the same task tomorrow.
+**Start a task.** Left-click `+`. A task called `new task 1` appears on the bar, its clock
+starts, and the name is immediately open for editing with the placeholder selected — type
+what you are actually doing and press Enter. Escape keeps the placeholder. The number never
+repeats, so `new task 7` means the same task tomorrow.
 
-**Rename it.** Right-click the task name. The name turns into a text field: type, then
-press Enter to keep it or Escape to go back to the old name.
+**Rename it later.** Left-click the task name. Enter commits, Escape restores the old name.
 
 **Interrupted?** Left-click `+` again. The new task goes on top of the stack and takes over
 the bar; the one underneath stops collecting time but stays open.
 
-**Switch back.** Middle-click the task name — or open the menu with `≡` — and pick a task
-under _switch to_. It moves to the
-top of the stack and starts collecting time again. The list is in stack order, with the
-current task marked and `pause` at the bottom.
+**Switch back.** Middle-click the task name, or pick _select_ from the menu. The task stack
+opens in its own window: focused task first, everything else in stack order, `pause` last,
+each row with today's time and its total. Click one to work on it again.
 
-**Take a break.** Middle-click `+`, or pick `pause` from the menu. It is a permanent task that can never be
+**Take a break.** Middle-click `+`, or pick `pause` in the task stack. It is a permanent task that can never be
 finished, so breaks show up in the reports like everything else. Right-click `+` while
 `pause` is on top to end the break and return to what you were doing.
 
 **Finish a task.** Right-click `+`. The task leaves the stack, its end time is recorded,
 and the task underneath comes back. There is no confirmation — see _revive_ below if you
 did not mean it. When nothing else is open, `pause` takes over.
+
+**Set a daily limit.** Menu → _timer_ lists the open tasks and a default for new ones.
+Click a row, pick a duration, and WipTracker beeps once when that task has been worked on
+that long today — and the clock on the bar turns amber for the rest of the day, so a
+missed beep is not a missed limit. _off_ removes the alarm; the default applies to every
+task created afterwards.
 
 **Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.
@@ -81,12 +97,15 @@ totals down the side and along the bottom. Use _previous_ / _next_ / _today_ to 
 between weeks, or type any date as `YYYY-MM-DD` into _jump to date_ and press Enter to see
 the week containing it.
 
-**Undo a finish.** Menu → _revive_ lists finished tasks, most recent first. Clicking one
-puts it back on top of the stack and clears its end time; its total keeps counting from
-where it left off. The entry is greyed out when nothing has been finished yet, and the
-window closes itself once the last finished task has been brought back.
+**Undo a finish.** Menu → _revive_ lists the tasks finished in the last 30 days, most
+recent first. Clicking one puts it back on top of the stack and clears its end time; its
+total keeps counting from where it left off. Older tasks are not deleted — they simply stop
+cluttering this list, and still appear in the week overview. The entry is greyed out when
+there is nothing to revive, and the window closes itself once the last one is back.
 
-**Hide the clock.** Menu → _hide duration_ leaves just the task name on the bar.
+**The clock shows today.** The number on the bar is the time spent on this task *today*,
+which is what the timers and the end-day report count. Hover it for the all-time total, or
+open the task stack, which lists both. Menu → _hide duration_ leaves just the task name.
 
 **Move the bar.** Drag the dotted handle at the left edge — or the task name, or anywhere
 else that is not a button. The position
@@ -94,10 +113,11 @@ is remembered. WipTracker first asks the window manager for its own move gesture
 back to moving the window itself.
 
 **Can't move it?** Menu → _show window frame_ gives the window its normal title bar, which
-every environment knows how to drag. The choice is remembered, and _hide window frame_
-takes it away again. On Wayland the frame is on by default, because Wayland compositors
-often ignore the move gesture and never report a window position for the fallback to use;
-X11, macOS and Windows start frameless.
+every environment knows how to drag. **The change applies at the next start** — a frame
+added to a running window is drawn over the bar rather than around it, so WipTracker only
+stores the preference and says so. _hide window frame_ takes it away again. On Wayland the
+frame is on by default, because Wayland compositors often ignore the move gesture and never
+report a window position for the fallback to use; X11, macOS and Windows start frameless.
 
 ## Data
 
@@ -125,6 +145,11 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
   instance reports the lock in the bar instead of starting.
 - **The clock stops with the app.** Time while WipTracker is not running is never counted,
   even if a task was focused when you quit.
+- **A window position on a monitor that no longer exists is ignored** at startup, and the
+  bar opens near the top of the current screen instead. WipTracker only sees the size of
+  the monitor it is on, so a window that is merely half off-screen is left alone.
+- **The timer alarm needs an audio device.** Without one, WipTracker prints a single line
+  to stderr and keeps tracking; the timers themselves still work, they just stay silent.
 
 ## Development
 
@@ -134,8 +159,30 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-The UI tests render the real app headlessly through `egui_kittest` and write PNGs to
+The UI tests drive the real app headlessly through `egui_kittest` — clicking buttons,
+opening the windows, checking the state that comes out — and write PNGs to
 `target/render/`, so layout and contrast can be checked without a desktop session.
+
+Regenerate the screenshot in this README with:
+
+```sh
+cargo test --test bar_render docs_screenshot -- --ignored
+```
+
+The icon — a cat reading — is drawn by a script rather than kept as a binary blob, so it
+can be regenerated at any size:
+
+```sh
+packaging/make_icon.py
+```
+
+It writes `assets/icon.png` (used by the macOS bundle and this page) and
+`assets/icon.rgba`, the 64x64 raw buffer the app embeds for the taskbar.
+
+Releases are cut by pushing a tag (`git tag v0.1.0 && git push --tags`). The workflow
+builds all three platforms, creates the GitHub release from the matching `CHANGELOG.md`
+section, and pushes the Homebrew formula and Scoop manifest from `packaging/`. It needs a
+`CHANNEL_PAT` secret with push access to the tap and bucket repositories.
 
 ## License
 

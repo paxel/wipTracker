@@ -42,6 +42,31 @@ fn bar_renders_focused_task_and_clock() {
     assert_eq!(harness.state().tracker().focused_name(), "new task 1");
 }
 
+/// The bar's clock is today's time, and it turns amber once the daily timer is reached.
+#[test]
+fn the_clock_marks_a_task_that_is_over_its_timer() {
+    let start = Local::now();
+    let mut tracker = Tracker::new(start);
+    let id = tracker.push_new_task(start);
+    tracker.rename(id, "write the report").expect("rename");
+    tracker
+        .set_timer(id, std::time::Duration::from_secs(1800))
+        .expect("set timer");
+    // An hour today, against a half-hour limit.
+    tracker.accrue(start + chrono::TimeDelta::hours(1));
+
+    let mut harness = harness(tracker);
+    harness.run();
+    save(&mut harness, "bar_over_limit");
+
+    let image = harness.render().expect("wgpu render");
+    let amber = image.pixels().any(|pixel| {
+        let [r, g, b, _] = pixel.0;
+        r > 0xC0 && (0x90..=0xD0).contains(&g) && b < 0x80
+    });
+    assert!(amber, "the clock should be amber once the timer is reached");
+}
+
 #[test]
 fn bar_renders_without_clock() {
     let mut tracker = Tracker::new(at(9));
@@ -115,4 +140,47 @@ fn docs_screenshot() {
     let image = harness.render().expect("wgpu render");
     std::fs::create_dir_all("docs").expect("create docs dir");
     image.save("docs/bar.png").expect("save png");
+}
+
+/// The desktop's own light theme must not leak into the bar.
+///
+/// A mac user's recording showed exactly that: white menu buttons with near-white labels,
+/// and a white rename field with a white caret, because egui follows the system theme by
+/// default and re-applies it every frame.
+#[test]
+fn the_bar_stays_dark_on_a_light_desktop() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "arbeit").expect("rename");
+
+    let mut harness = harness(tracker);
+    // Whatever the desktop asks for, the app pins its own theme — and, belt and braces,
+    // installs the same dark palette under the light theme as well.
+    harness.ctx.set_theme(egui::ThemePreference::Light);
+    harness.run();
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        egui::ThemePreference::Dark,
+        "the app pins the dark theme regardless of the desktop"
+    );
+    harness.state_mut().start_rename();
+    harness.run();
+    harness.run();
+    save(&mut harness, "bar_rename_dark");
+
+    let image = harness.render().expect("wgpu render");
+    let width = image.width();
+    // The rename field spans the left of the bar; sample its middle rows.
+    let bright = image
+        .enumerate_pixels()
+        .filter(|(x, y, _)| *x > 20 && *x < width / 2 && *y > 8 && *y < 24)
+        .filter(|(_, _, pixel)| {
+            let [r, g, b, _] = pixel.0;
+            r > 0xC8 && g > 0xC8 && b > 0xC8
+        })
+        .count();
+    assert!(
+        bright < 40,
+        "the rename field should be dark, found {bright} near-white pixels"
+    );
 }

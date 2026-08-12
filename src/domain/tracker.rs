@@ -35,6 +35,8 @@ pub struct Tracker {
     next_id: TaskId,
     /// The number used for the next automatically named task. Never reused.
     next_number: u64,
+    /// The daily timer every new task starts with. Zero means no alarm.
+    default_timer: Duration,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
 }
@@ -50,6 +52,7 @@ impl Tracker {
             history: BTreeMap::new(),
             next_id: PAUSE_ID + 1,
             next_number: 1,
+            default_timer: Duration::ZERO,
             active_since: now,
         }
     }
@@ -63,6 +66,7 @@ impl Tracker {
             stack: snapshot.stack.clone(),
             history: snapshot.history.clone(),
             next_number: snapshot.next_number.max(1),
+            default_timer: snapshot.default_timer,
             active_since: now,
         };
         tracker
@@ -92,6 +96,7 @@ impl Tracker {
             stack: self.stack.clone(),
             history: self.history.clone(),
             next_number: self.next_number,
+            default_timer: self.default_timer,
             show_duration,
             decorated,
             window_pos,
@@ -126,6 +131,18 @@ impl Tracker {
             .collect();
         ordered.sort_by_key(|task| task.is_pause());
         ordered
+    }
+
+    /// The tasks finished within the last `days`, most recently finished first.
+    ///
+    /// Older ones are still in the data and in the week overview; they are simply not
+    /// offered for reviving, so the list stays readable after a year of use.
+    pub fn recently_finished(&self, days: i64, now: DateTime<Local>) -> Vec<&Task> {
+        let cutoff = now - chrono::TimeDelta::days(days);
+        self.finished_tasks()
+            .into_iter()
+            .filter(|task| task.finished_at.is_some_and(|at| at >= cutoff))
+            .collect()
     }
 
     /// The finished tasks, most recently finished first.
@@ -195,7 +212,8 @@ impl Tracker {
         self.next_id += 1;
         let name = format!("new task {}", self.next_number);
         self.next_number += 1;
-        self.tasks.insert(id, Task::new(id, name, now));
+        self.tasks
+            .insert(id, Task::new(id, name, now).with_timer(self.default_timer));
         self.stack.push(id);
         id
     }
@@ -263,6 +281,53 @@ impl Tracker {
         self.stack.retain(|stacked| *stacked != id);
         self.stack.push(id);
         Ok(())
+    }
+
+    pub fn default_timer(&self) -> Duration {
+        self.default_timer
+    }
+
+    /// Sets the timer new tasks start with. Zero switches the alarm off.
+    pub fn set_default_timer(&mut self, timer: Duration) {
+        self.default_timer = timer;
+    }
+
+    /// Sets one task's daily timer. Zero switches its alarm off.
+    pub fn set_timer(&mut self, id: TaskId, timer: Duration) -> Result<(), TrackerError> {
+        let task = self
+            .tasks
+            .get_mut(&id)
+            .ok_or(TrackerError::UnknownTask(id))?;
+        task.timer = timer;
+        Ok(())
+    }
+
+    /// The tasks whose daily timer has just been reached, each reported once per day.
+    ///
+    /// Call after [`Self::accrue`]; the caller is expected to sound the alarm.
+    pub fn take_due_alarms(&mut self, now: DateTime<Local>) -> Vec<TaskId> {
+        let day = now.date_naive();
+        let Some(record) = self.history.get(&day) else {
+            return Vec::new();
+        };
+        let due: Vec<TaskId> = record
+            .per_task
+            .iter()
+            .filter(|(id, spent)| {
+                !record.alarmed.contains(id)
+                    && self
+                        .tasks
+                        .get(id)
+                        .is_some_and(|task| task.has_timer() && **spent >= task.timer)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        if !due.is_empty()
+            && let Some(record) = self.history.get_mut(&day)
+        {
+            record.alarmed.extend(due.iter().copied());
+        }
+        due
     }
 
     pub fn rename(&mut self, id: TaskId, name: &str) -> Result<(), TrackerError> {
@@ -636,6 +701,7 @@ mod tests {
             stack: vec![7, 8],
             history: BTreeMap::new(),
             next_number: 9,
+            default_timer: Duration::ZERO,
             show_duration: true,
             decorated: None,
             window_pos: None,
@@ -644,6 +710,83 @@ mod tests {
         assert_eq!(tracker.stack_bottom_first(), [PAUSE_ID, 8]);
         assert_eq!(tracker.focused_id(), 8);
         assert_eq!(tracker.next_task_number(), 9);
+    }
+
+    #[test]
+    fn revivable_tasks_stop_at_the_cutoff() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let old = tracker.push_new_task(at(1, 9));
+        tracker.finish_focused(at(1, 10));
+        let recent = tracker.push_new_task(at(20, 9));
+        tracker.finish_focused(at(20, 10));
+
+        let ids: Vec<TaskId> = tracker
+            .recently_finished(30, at(25, 9))
+            .iter()
+            .map(|task| task.id)
+            .collect();
+        assert_eq!(ids, vec![recent, old], "both are inside 30 days");
+
+        let ids: Vec<TaskId> = tracker
+            .recently_finished(30, at(1, 9) + chrono::TimeDelta::days(40))
+            .iter()
+            .map(|task| task.id)
+            .collect();
+        assert_eq!(ids, vec![recent], "the older one has aged out");
+        assert_eq!(
+            tracker.finished_tasks().len(),
+            2,
+            "nothing is deleted, only hidden from the revive list"
+        );
+    }
+
+    #[test]
+    fn new_tasks_inherit_the_default_timer() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_default_timer(Duration::from_secs(1800));
+        let task = tracker.push_new_task(at(1, 9));
+        assert_eq!(
+            tracker.task(task).map(|t| t.timer),
+            Some(Duration::from_secs(1800))
+        );
+    }
+
+    #[test]
+    fn a_timer_sounds_once_when_the_daily_limit_is_reached() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.set_timer(task, hours(2)).expect("set timer");
+
+        tracker.accrue(at(1, 10));
+        assert!(tracker.take_due_alarms(at(1, 10)).is_empty(), "not due yet");
+
+        tracker.accrue(at(1, 11));
+        assert_eq!(tracker.take_due_alarms(at(1, 11)), vec![task]);
+        assert!(
+            tracker.take_due_alarms(at(1, 11)).is_empty(),
+            "the alarm sounds only once a day"
+        );
+    }
+
+    #[test]
+    fn the_same_task_can_sound_again_the_next_day() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.set_timer(task, hours(1)).expect("set timer");
+        tracker.accrue(at(1, 11));
+        assert_eq!(tracker.take_due_alarms(at(1, 11)), vec![task]);
+
+        tracker.accrue(at(2, 11));
+        assert_eq!(tracker.take_due_alarms(at(2, 11)), vec![task]);
+    }
+
+    #[test]
+    fn a_zero_timer_never_sounds() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 17));
+        assert!(tracker.take_due_alarms(at(1, 17)).is_empty());
+        assert_eq!(tracker.task(task).map(|t| t.timer), Some(Duration::ZERO));
     }
 
     #[test]

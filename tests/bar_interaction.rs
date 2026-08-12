@@ -57,13 +57,13 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
     harness.run();
 
     for label in [
-        "write the report",
-        PAUSE_NAME,
-        "window frame",
+        "select",
+        "timer",
         "groom",
         "end day",
         "week",
         "revive",
+        "window frame",
     ] {
         assert!(
             harness.query_all_by_label_contains(label).count() > 0,
@@ -85,18 +85,21 @@ fn the_window_frame_can_be_toggled_from_the_menu() {
     harness.run();
 
     assert_eq!(harness.state().is_decorated(), !before);
-    assert!(!harness.state().is_menu_open());
+    assert!(
+        harness.state().is_menu_open(),
+        "the menu stays open to explain that a restart is needed"
+    );
 }
 
 #[test]
-fn picking_a_task_from_the_menu_focuses_it() {
+fn picking_a_task_from_the_stack_window_focuses_it() {
     let mut tracker = Tracker::new(at(9));
     let id = tracker.push_new_task(at(9));
     tracker.rename(id, "write the report").expect("rename");
     tracker.push_new_task(at(10));
 
     let mut harness = harness(tracker);
-    harness.state_mut().set_menu_open(true);
+    harness.state_mut().windows_mut().stack = true;
     harness.run();
     assert_eq!(harness.state().tracker().focused_name(), "new task 2");
 
@@ -105,7 +108,35 @@ fn picking_a_task_from_the_menu_focuses_it() {
         .click_accesskit();
     harness.run();
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
-    assert!(!harness.state().is_menu_open());
+    assert!(
+        !harness.state().windows().stack,
+        "picking a task closes the stack window"
+    );
+}
+
+#[test]
+fn the_select_entry_opens_the_stack_window() {
+    let mut harness = harness(Tracker::new(at(9)));
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+
+    harness.get_by_label_contains("select").click_accesskit();
+    harness.run();
+    assert!(harness.state().windows().stack);
+}
+
+#[test]
+fn a_new_task_opens_its_name_for_editing() {
+    let mut harness = harness(Tracker::new(at(9)));
+    harness.run();
+    assert!(!harness.state().is_renaming());
+
+    harness.get_by_label("new task").click();
+    harness.run();
+    assert!(
+        harness.state().is_renaming(),
+        "the placeholder name should be ready to be typed over"
+    );
 }
 
 /// kittest clicks with the primary button, so the middle button is sent by hand.
@@ -166,15 +197,15 @@ fn middle_clicking_plus_takes_a_break() {
 }
 
 #[test]
-fn middle_clicking_the_name_opens_the_task_list() {
+fn middle_clicking_the_name_opens_the_stack_window() {
     let mut tracker = Tracker::new(at(9));
     let id = tracker.push_new_task(at(9));
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
     harness.run();
-    assert!(!harness.state().is_menu_open());
+    assert!(!harness.state().windows().stack);
 
     middle_click(&mut harness, name_center());
-    assert!(harness.state().is_menu_open());
+    assert!(harness.state().windows().stack);
 }

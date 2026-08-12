@@ -1,6 +1,6 @@
 //! What happened on one calendar day.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
@@ -20,6 +20,9 @@ pub struct DayRecord {
     /// Whether the user has explicitly closed this day.
     pub closed: bool,
     pub per_task: BTreeMap<TaskId, Duration>,
+    /// Tasks whose timer already sounded today, so it sounds only once.
+    #[serde(default)]
+    pub alarmed: BTreeSet<TaskId>,
 }
 
 impl DayRecord {
