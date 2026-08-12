@@ -38,6 +38,8 @@ pub fn tooltip(response: Response, text: impl Into<String>) -> Response {
 pub enum Icon {
     Plus,
     Burger,
+    /// A branch peeling off a trunk: the other tasks you could switch to.
+    Fork,
 }
 
 impl Icon {
@@ -46,8 +48,69 @@ impl Icon {
         match self {
             Self::Plus => "new task",
             Self::Burger => "menu",
+            Self::Fork => "task stack",
         }
     }
+}
+
+/// What watching a press across frames produced.
+#[derive(Clone, Copy, Default)]
+pub struct Press {
+    /// Released over the widget without the hold ever completing.
+    pub clicked: bool,
+    /// The hold completed on this frame. Reported once per press.
+    pub long_pressed: bool,
+    /// How far the hold has come, `0.0` to `1.0`, for the sweep.
+    pub progress: f32,
+}
+
+/// Watches a press so that a click and a hold can share one widget.
+///
+/// The hold consumes the click: once it completes, letting go does nothing more. Sliding
+/// off the widget before letting go cancels the hold and produces no click either. There
+/// is deliberately no minimum press duration — a slow click is still a click, and a dead
+/// zone between "too slow to click" and "not yet a hold" would look like a broken app.
+///
+/// `hold` is in seconds. `armed` says whether the hold leads anywhere at all; when it does
+/// not, no sweep is drawn and the widget behaves as a plain button.
+///
+/// Time comes from egui rather than the clock so that tests can step it forward instead of
+/// sleeping. This relies on `max_click_duration` being lifted (see `install_theme`):
+/// egui's own `clicked()` otherwise refuses to fire after 0.8 seconds, which is well
+/// inside the longest hold here.
+pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Press {
+    let key = response.id.with("press");
+    let now = ui.input(|input| input.time);
+    let previous: Option<(f64, bool)> = ui.data(|data| data.get_temp(key));
+    let mut press = Press::default();
+
+    // Deliberately the raw pointer position rather than `contains_pointer`: the widget's
+    // own tooltip opens after a fraction of a second, and being covered by a higher layer
+    // is enough for egui to stop calling the pointer "contained" — which cancelled every
+    // hold longer than the tooltip delay.
+    let over = ui
+        .input(|input| input.pointer.interact_pos())
+        .is_some_and(|pos| response.rect.contains(pos));
+
+    if response.is_pointer_button_down_on() && over {
+        let (started, mut fired) = previous.unwrap_or((now, false));
+        if armed {
+            press.progress = (((now - started) as f32) / hold).clamp(0.0, 1.0);
+            if press.progress >= 1.0 && !fired {
+                fired = true;
+                press.long_pressed = true;
+            }
+        }
+        ui.data_mut(|data| data.insert_temp(key, (started, fired)));
+        // The app asks for a repaint once a second, which is far too slow for a sweep.
+        ui.ctx().request_repaint();
+    } else {
+        if previous.is_some() {
+            ui.data_mut(|data| data.remove::<(f64, bool)>(key));
+        }
+        press.clicked = response.clicked() && !previous.is_some_and(|(_, fired)| fired);
+    }
+    press
 }
 
 /// The drag handle at the left edge of the bar: a column of dots, dragged to move the
@@ -79,14 +142,18 @@ pub fn grip(ui: &mut Ui) -> Response {
     response
 }
 
-/// A square icon button that reacts to hover and press.
-pub fn icon_button(ui: &mut Ui, icon: Icon) -> Response {
+/// A square icon button that reacts to hover, press and hold.
+///
+/// `hold` and `armed` are handed straight to [`track_press`]; the sweep it reports is
+/// painted under the icon.
+pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response, Press) {
     let (rect, response) = ui.allocate_exact_size(theme::BUTTON_SIZE, Sense::click());
     let enabled = ui.is_enabled();
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, icon.label()));
+    let press = track_press(ui, &response, hold, armed);
     if !ui.is_rect_visible(rect) {
-        return response;
+        return (response, press);
     }
 
     let fill = if response.is_pointer_button_down_on() {
@@ -99,6 +166,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon) -> Response {
     if fill.a() > 0 {
         ui.painter().rect_filled(rect, 4.0, fill);
     }
+    sweep(ui, rect, press.progress, theme::HOLD_FILL);
 
     let painter = ui.painter();
     let stroke = Stroke::new(1.6, theme::TEXT);
@@ -115,7 +183,41 @@ pub fn icon_button(ui: &mut Ui, icon: Icon) -> Response {
                 painter.hline(center.x - half..=center.x + half, center.y + offset, stroke);
             }
         }
+        Icon::Fork => {
+            // A trunk with one branch peeling off to the upper right, a dot at each end:
+            // deliberately unlike the burger's three straight lines, which sits two
+            // buttons away.
+            let trunk = center.x - 3.0;
+            let (top, bottom) = (center.y - 6.0, center.y + 6.0);
+            painter.vline(trunk, top..=bottom, stroke);
+            painter.line_segment(
+                [
+                    egui::pos2(trunk, center.y + 1.0),
+                    egui::pos2(center.x + 4.0, top + 1.0),
+                ],
+                stroke,
+            );
+            for point in [
+                egui::pos2(trunk, top),
+                egui::pos2(trunk, bottom),
+                egui::pos2(center.x + 4.0, top + 1.0),
+            ] {
+                painter.circle_filled(point, 1.6, theme::TEXT);
+            }
+        }
     }
 
-    response
+    (response, press)
+}
+
+/// Fills `rect` from the left to show how far a hold has come.
+pub fn sweep(ui: &Ui, rect: egui::Rect, progress: f32, color: Color32) {
+    if progress <= 0.0 {
+        return;
+    }
+    let filled = egui::Rect::from_min_size(
+        rect.min,
+        egui::vec2(rect.width() * progress.min(1.0), rect.height()),
+    );
+    ui.painter().rect_filled(filled, 4.0, color);
 }

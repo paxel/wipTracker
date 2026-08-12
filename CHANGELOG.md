@@ -23,6 +23,23 @@ All notable changes to WipTracker are documented in this file.
 
 ### Changed
 
+- **Left click and hold are the only gestures.** Right click, middle click and double click
+  are gone from the bar, so a trackpad, a touchpad and a touchscreen can all reach every
+  command. Clicking the task name renames it; holding it for two seconds finishes it, or
+  ends the break when `pause` is on top. A new **fork button** opens the task stack on a
+  click and takes a break on a hold. `+` still starts a task, and holding it puts a
+  finished task back. The burger toggles the menu, and holding it opens the daily timers.
+  While a control is held it fills up, so the wait is visible; letting go early does the
+  click instead.
+- **Every gesture is also a menu entry.** The menu gained _new task_, _rename_, _finish_
+  and _pause_, is grouped into sections, and each entry's tooltip names the gesture that
+  does the same thing. A touchscreen shows no tooltips at all, so the menu is the only
+  place the gestures can be discovered by looking.
+- **The drag handle is the only way to move the bar.** The task name and the empty
+  background used to drag the window too; the name cannot both be dragged and held for two
+  seconds, and a stray press on the background moved the bar by accident. On a window with
+  a frame the handle is dropped altogether — the title bar does the job — and the bar is
+  ten pixels narrower for it.
 - **Tooltips are anchored to the control they describe**, a gap away from it, and larger.
   They used to open under the mouse pointer, which covered the first words.
 - **The report windows open near the bar**, or centred on the screen when the bar's
@@ -30,6 +47,13 @@ All notable changes to WipTracker are documented in this file.
 
 ### Fixed
 
+- **The menu opens where it fits.** It was always placed directly below the bar, so a bar
+  near the bottom of the screen opened it past the edge. It now goes wherever it is fully
+  visible, and scrolls if the screen is shorter than the list. Wayland is the exception:
+  no client can place a window there, so the compositor decides.
+- **The burger closes the menu again.** Pressing it took the focus off the menu window,
+  which closed it a frame before the click arrived — and the click then reopened it, so the
+  button looked like it could only open.
 - **Dragging the bar no longer leaves it stuck to the pointer.** The window was moved by
   two mechanisms at once: the window manager's own gesture, plus a per-frame fallback. Once
   the window manager takes a pointer grab the button release never reaches the app, so the

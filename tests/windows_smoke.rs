@@ -34,7 +34,7 @@ fn populated() -> Tracker {
 
 fn harness(tracker: Tracker) -> Harness<'static, WipTracker> {
     Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
         .wgpu()
         .build_eframe(|cc| WipTracker::with_tracker(cc, tracker))
 }
@@ -239,7 +239,7 @@ fn a_reached_timer_sounds_the_alarm_once() {
     // place before that: an alarm installed afterwards would miss the first firing.
     let alarm = SilentAlarm(counter.clone());
     let mut harness = Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
         .wgpu()
         .build_eframe(move |cc| {
             let mut app = WipTracker::with_tracker(cc, tracker);

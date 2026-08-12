@@ -1,12 +1,17 @@
-//! Clicks the real app's buttons and checks the state that comes out.
+//! Clicks and holds the real app's buttons and checks the state that comes out.
 
 use chrono::{DateTime, Local, TimeZone as _};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use wiptracker::app::WipTracker;
+use wiptracker::app::{WipTracker, prefers_decorations};
 use wiptracker::domain::task::PAUSE_NAME;
 use wiptracker::domain::tracker::Tracker;
 use wiptracker::theme;
+use wiptracker::ui::bar::{HOLD_FINISH, HOLD_QUICK};
+
+/// How far each frame moves the clock on. Coarse on purpose: a two-second hold is then
+/// five frames rather than a two-second sleep.
+const STEP: f32 = 0.5;
 
 fn at(hour: u32) -> DateTime<Local> {
     Local
@@ -15,11 +20,62 @@ fn at(hour: u32) -> DateTime<Local> {
         .expect("valid local time")
 }
 
+fn bar_size() -> egui::Vec2 {
+    theme::bar_size(prefers_decorations())
+}
+
 fn harness(tracker: Tracker) -> Harness<'static, WipTracker> {
     Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(bar_size())
+        .with_step_dt(STEP)
         .wgpu()
         .build_eframe(|cc| WipTracker::with_tracker(cc, tracker))
+}
+
+/// The centre of one of the three buttons, counted from the right edge: the burger is 0,
+/// the plus 1, the fork 2.
+fn button_center(from_right: f32) -> egui::Pos2 {
+    let spacing = 2.0;
+    egui::pos2(
+        bar_size().x
+            - theme::BAR_MARGIN
+            - from_right * (theme::BUTTON_SIZE.x + spacing)
+            - theme::BUTTON_SIZE.x / 2.0,
+        theme::BAR_HEIGHT / 2.0,
+    )
+}
+
+fn name_center() -> egui::Pos2 {
+    egui::pos2(
+        theme::BAR_MARGIN + theme::grip_width(prefers_decorations()) + 30.0,
+        theme::BAR_HEIGHT / 2.0,
+    )
+}
+
+fn pointer(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2, pressed: bool) {
+    let events = &mut harness.input_mut().events;
+    events.push(egui::Event::PointerMoved(pos));
+    events.push(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    });
+}
+
+/// Holds the primary button down over `pos` for `seconds`, then lets go.
+///
+/// Frames are stepped rather than run, because a live press asks for a repaint every
+/// frame and `run` would keep going until it gave up.
+fn hold(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2, seconds: f32) {
+    pointer(harness, pos, true);
+    harness.step();
+    let frames = (seconds / STEP).ceil() as usize;
+    for _ in 0..frames {
+        harness.step();
+    }
+    pointer(harness, pos, false);
+    harness.step();
 }
 
 #[test]
@@ -47,6 +103,24 @@ fn clicking_the_burger_opens_the_menu() {
 }
 
 #[test]
+fn the_burger_closes_the_menu_again() {
+    let mut harness = harness(Tracker::new(at(9)));
+    harness.get_by_label("menu").click();
+    harness.run();
+    assert!(harness.state().is_menu_open());
+
+    // Through the accessibility tree, not a pointer: the harness draws the menu window
+    // over the bar instead of beside it, so a click at the burger's position would land
+    // on the menu.
+    harness.get_by_label("menu").click_accesskit();
+    harness.run();
+    assert!(
+        !harness.state().is_menu_open(),
+        "the burger toggles the menu, it does not only open it"
+    );
+}
+
+#[test]
 fn the_menu_lists_its_entries_and_the_open_tasks() {
     let mut tracker = Tracker::new(at(9));
     let id = tracker.push_new_task(at(9));
@@ -57,6 +131,10 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
     harness.run();
 
     for label in [
+        "new task",
+        "rename",
+        "finish",
+        "pause",
         "select",
         "timer",
         "groom",
@@ -139,41 +217,19 @@ fn a_new_task_opens_its_name_for_editing() {
     );
 }
 
-/// kittest clicks with the primary button, so the middle button is sent by hand.
-fn middle_click(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2) {
-    let events = &mut harness.input_mut().events;
-    events.push(egui::Event::PointerMoved(pos));
-    events.push(egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Middle,
-        pressed: true,
-        modifiers: egui::Modifiers::NONE,
-    });
-    events.push(egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Middle,
-        pressed: false,
-        modifiers: egui::Modifiers::NONE,
-    });
+#[test]
+fn clicking_the_fork_opens_the_stack_window() {
+    let mut harness = harness(Tracker::new(at(9)));
     harness.run();
-}
+    assert!(!harness.state().windows().stack);
 
-fn plus_center() -> egui::Pos2 {
-    egui::pos2(
-        theme::BAR_SIZE.x - theme::BAR_MARGIN - 1.5 * theme::BUTTON_SIZE.x,
-        theme::BAR_SIZE.y / 2.0,
-    )
-}
-
-fn name_center() -> egui::Pos2 {
-    egui::pos2(
-        theme::BAR_MARGIN + theme::GRIP_WIDTH + 30.0,
-        theme::BAR_SIZE.y / 2.0,
-    )
+    harness.get_by_label("task stack").click();
+    harness.run();
+    assert!(harness.state().windows().stack);
 }
 
 #[test]
-fn middle_clicking_plus_takes_a_break() {
+fn holding_the_fork_takes_a_break() {
     let mut tracker = Tracker::new(at(9));
     let id = tracker.push_new_task(at(9));
     tracker.rename(id, "write the report").expect("rename");
@@ -182,7 +238,7 @@ fn middle_clicking_plus_takes_a_break() {
     harness.run();
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
 
-    middle_click(&mut harness, plus_center());
+    hold(&mut harness, button_center(2.0), HOLD_QUICK);
     assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
 
     // The task is still open underneath, so it is only a break, not a finish.
@@ -194,18 +250,78 @@ fn middle_clicking_plus_takes_a_break() {
             .iter()
             .any(|task| task.name == "write the report")
     );
+    assert!(
+        !harness.state().windows().stack,
+        "the hold replaces the click, it does not also fire it"
+    );
 }
 
 #[test]
-fn middle_clicking_the_name_opens_the_stack_window() {
+fn holding_the_name_finishes_the_task() {
     let mut tracker = Tracker::new(at(9));
     let id = tracker.push_new_task(at(9));
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
     harness.run();
-    assert!(!harness.state().windows().stack);
 
-    middle_click(&mut harness, name_center());
-    assert!(harness.state().windows().stack);
+    hold(&mut harness, name_center(), HOLD_FINISH);
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+    assert!(
+        !harness.state().is_renaming(),
+        "the hold replaces the click, so no rename is started"
+    );
+}
+
+#[test]
+fn letting_go_of_the_name_early_renames_instead() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+
+    // Well past egui's own click limit, but short of the finish hold: still a click.
+    hold(&mut harness, name_center(), HOLD_FINISH - STEP * 2.0);
+    assert_eq!(harness.state().tracker().focused_name(), "write the report");
+    assert!(
+        harness.state().is_renaming(),
+        "a slow click is still a click"
+    );
+}
+
+#[test]
+fn holding_the_burger_opens_the_timer() {
+    let mut harness = harness(Tracker::new(at(9)));
+    harness.run();
+
+    hold(&mut harness, button_center(0.0), HOLD_QUICK);
+    assert!(harness.state().windows().timer);
+    assert!(
+        !harness.state().is_menu_open(),
+        "the hold replaces the click, so the menu stays shut"
+    );
+}
+
+#[test]
+fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
+    let mut empty = harness(Tracker::new(at(9)));
+    empty.run();
+
+    hold(&mut empty, button_center(1.0), HOLD_QUICK);
+    assert!(
+        !empty.state().windows().revive,
+        "nothing has been finished, so the hold leads nowhere"
+    );
+
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+    tracker.finish_focused(at(10));
+
+    let mut revivable = harness(tracker);
+    revivable.run();
+    hold(&mut revivable, button_center(1.0), HOLD_QUICK);
+    assert!(revivable.state().windows().revive);
 }

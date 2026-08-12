@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Local, TimeZone as _};
 use egui_kittest::Harness;
-use wiptracker::app::WipTracker;
+use wiptracker::app::{WipTracker, prefers_decorations};
 use wiptracker::domain::task::PAUSE_NAME;
 use wiptracker::domain::tracker::Tracker;
 use wiptracker::theme;
@@ -16,7 +16,7 @@ fn at(hour: u32) -> DateTime<Local> {
 
 fn harness(tracker: Tracker) -> Harness<'static, WipTracker> {
     Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(prefers_decorations()))
         .wgpu()
         .build_eframe(|cc| WipTracker::with_tracker(cc, tracker))
 }
@@ -99,8 +99,8 @@ fn hovering_the_buttons_keeps_them_readable() {
 
     let mut harness = harness(tracker);
     harness.hover_at(egui::pos2(
-        theme::BAR_SIZE.x - 1.5 * theme::BUTTON_SIZE.x,
-        theme::BAR_SIZE.y / 2.0,
+        theme::bar_size(prefers_decorations()).x - 1.5 * theme::BUTTON_SIZE.x,
+        theme::BAR_HEIGHT / 2.0,
     ));
     harness.run();
     save(&mut harness, "bar_hover_plus");
@@ -131,7 +131,7 @@ fn docs_screenshot() {
     tracker.accrue(start + chrono::TimeDelta::seconds(5025));
 
     let mut harness = Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(prefers_decorations()))
         .with_pixels_per_point(3.0)
         .wgpu()
         .build_eframe(|cc| WipTracker::with_tracker(cc, tracker));

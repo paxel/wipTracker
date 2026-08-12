@@ -62,13 +62,16 @@ fn main() -> eframe::Result<()> {
         .and_then(|snapshot| snapshot.decorated)
         .unwrap_or_else(prefers_decorations);
 
+    // The bar is narrower when it wears a window frame, because the grip that drags an
+    // undecorated window is not needed then.
+    let size = theme::bar_size(decorated);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("WipTracker")
         .with_icon(icon())
         .with_app_id("wiptracker")
-        .with_inner_size(theme::BAR_SIZE)
-        .with_min_inner_size(theme::BAR_SIZE)
-        .with_max_inner_size(theme::BAR_SIZE)
+        .with_inner_size(size)
+        .with_min_inner_size(size)
+        .with_max_inner_size(size)
         .with_decorations(decorated)
         .with_always_on_top()
         .with_resizable(false);

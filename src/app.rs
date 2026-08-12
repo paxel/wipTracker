@@ -32,6 +32,12 @@ pub fn prefers_decorations() -> bool {
 /// preference is what makes the explicit colours below stick.
 fn install_theme(ctx: &egui::Context) {
     ctx.set_theme(egui::ThemePreference::Dark);
+    // egui refuses to call a press a click once it has lasted longer than this, and it is
+    // one global setting, so it cannot serve both a half-second hold and a two-second one.
+    // Lifting it hands the decision to `track_press`, which knows which widget was held
+    // and for how long. Dragging still works: a drag is what happens once the pointer has
+    // moved further than a click may.
+    ctx.options_mut(|options| options.input_options.max_click_duration = f64::INFINITY);
 
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = theme::BACKGROUND;
@@ -68,6 +74,10 @@ pub struct WipTracker {
     window_pos: Option<(f32, f32)>,
     menu_open: bool,
     menu_was_focused: bool,
+    /// When the menu last closed because the focus went somewhere else. Clicking the
+    /// burger while the menu is open does exactly that a frame before the click lands, so
+    /// without this the click would reopen what it was meant to close.
+    menu_dismissed_at: Option<f64>,
     /// A short message shown in the menu, such as "restart to apply".
     notice: Option<String>,
     /// Whether the restored window position has been checked against the screen.
@@ -136,6 +146,7 @@ impl WipTracker {
             window_pos: None,
             menu_open: false,
             menu_was_focused: false,
+            menu_dismissed_at: None,
             notice: None,
             position_checked: false,
             alarm: None,
@@ -173,6 +184,7 @@ impl WipTracker {
     pub fn set_menu_open(&mut self, open: bool) {
         self.menu_open = open;
         self.menu_was_focused = false;
+        self.menu_dismissed_at = None;
     }
 
     pub fn is_menu_open(&self) -> bool {
@@ -301,37 +313,68 @@ impl WipTracker {
         });
     }
 
-    fn apply_bar_action(&mut self, action: BarAction, now: DateTime<Local>) {
+    /// Starts a task and opens its name for editing.
+    ///
+    /// A fresh task is called "new task 7"; the point of creating it is to say what it
+    /// really is, so the name is immediately open for editing with the placeholder
+    /// selected.
+    fn add_task(&mut self, now: DateTime<Local>) {
+        self.tracker.push_new_task(now);
+        self.start_rename();
+        self.dirty = true;
+    }
+
+    fn finish_task(&mut self, now: DateTime<Local>) {
+        self.tracker.finish_focused(now);
+        self.rename = None;
+        self.dirty = true;
+    }
+
+    fn switch_to_pause(&mut self, now: DateTime<Local>) {
+        let _ = self.tracker.select(PAUSE_ID, now);
+        self.dirty = true;
+    }
+
+    /// How long a burger click is ignored after the menu closed by losing the focus.
+    const REOPEN_GUARD: f64 = 0.25;
+
+    fn toggle_menu(&mut self, time: f64) {
+        // The press that reaches the burger is the same press that took the focus off the
+        // menu window, which already closed it. Reopening here would make the burger look
+        // like it only ever opens the menu.
+        if !self.menu_open
+            && self
+                .menu_dismissed_at
+                .is_some_and(|dismissed| time - dismissed < Self::REOPEN_GUARD)
+        {
+            self.menu_dismissed_at = None;
+            return;
+        }
+        self.menu_open = !self.menu_open;
+        self.menu_was_focused = false;
+        self.menu_dismissed_at = None;
+    }
+
+    fn apply_bar_action(&mut self, action: BarAction, now: DateTime<Local>, time: f64) {
         match action {
-            BarAction::AddTask => {
-                // A fresh task is called "new task 7"; the point of creating it is to say
-                // what it really is, so the name is immediately open for editing with the
-                // placeholder selected.
-                self.tracker.push_new_task(now);
-                self.start_rename();
-                self.dirty = true;
-            }
-            BarAction::FinishTask => {
-                self.tracker.finish_focused(now);
-                self.rename = None;
-                self.dirty = true;
-            }
-            BarAction::ToggleMenu => {
-                self.menu_open = !self.menu_open;
-                self.menu_was_focused = false;
-            }
+            BarAction::AddTask => self.add_task(now),
+            BarAction::FinishTask => self.finish_task(now),
+            BarAction::ToggleMenu => self.toggle_menu(time),
             BarAction::StartRename => self.start_rename(),
             BarAction::OpenStack => self.windows.stack = true,
-            BarAction::SwitchToPause => {
-                let _ = self.tracker.select(PAUSE_ID, now);
-                self.dirty = true;
-            }
+            BarAction::SwitchToPause => self.switch_to_pause(now),
+            BarAction::OpenRevive => self.windows.revive = true,
+            BarAction::OpenTimer => self.windows.timer = true,
             BarAction::None => {}
         }
     }
 
-    fn apply_menu_action(&mut self, action: MenuAction) {
+    fn apply_menu_action(&mut self, action: MenuAction, now: DateTime<Local>) {
         match action {
+            MenuAction::NewTask => self.add_task(now),
+            MenuAction::Rename => self.start_rename(),
+            MenuAction::Finish => self.finish_task(now),
+            MenuAction::Pause => self.switch_to_pause(now),
             MenuAction::OpenStack => self.windows.stack = true,
             MenuAction::OpenTimer => self.windows.timer = true,
             MenuAction::ToggleDuration => {
@@ -435,6 +478,17 @@ impl eframe::App for WipTracker {
                 over_limit: *over_limit,
             });
 
+        let can_revive = !self
+            .tracker
+            .recently_finished(windows::REVIVE_DAYS, now)
+            .is_empty();
+        let state = bar::BarState {
+            clock,
+            decorated: self.is_decorated(),
+            can_revive,
+        };
+        let time = ctx.input(|input| input.time);
+
         let mut action = BarAction::None;
         let mut renaming = false;
         egui::CentralPanel::default()
@@ -442,35 +496,41 @@ impl eframe::App for WipTracker {
             .show(ui, |ui| {
                 if self.rename.is_some() {
                     renaming = true;
-                    action = bar::show_with_editor(ui, clock, |ui| {
+                    action = bar::show_with_editor(ui, state, |ui| {
                         self.show_rename_editor(ui);
                     });
                 } else {
-                    action = bar::show(ui, &name, clock);
+                    action = bar::show(ui, &name, state);
                 }
             });
         let _ = renaming;
-        self.apply_bar_action(action, now);
+        self.apply_bar_action(action, now, time);
 
         if self.menu_open {
             let outcome = menu::show(
                 &ctx,
-                !self
-                    .tracker
-                    .recently_finished(windows::REVIVE_DAYS, now)
-                    .is_empty(),
-                self.show_duration,
-                self.is_decorated(),
-                self.notice.as_deref(),
-                self.window_pos,
-                self.menu_was_focused,
+                &menu::MenuContext {
+                    can_revive,
+                    paused: self.tracker.focused_id() == PAUSE_ID,
+                    show_duration: self.show_duration,
+                    decorated: self.is_decorated(),
+                    notice: self.notice.as_deref(),
+                    bar: self.window_pos,
+                    monitor: ctx.input(|input| input.viewport().monitor_size),
+                    was_focused: self.menu_was_focused,
+                },
             );
             self.menu_open = outcome.keep_open;
             if !self.menu_open {
                 self.notice = None;
+                // Only a dismissal by focus loss can be undone by the burger click that
+                // caused it; picking an entry closes the menu on purpose.
+                if outcome.action == MenuAction::None {
+                    self.menu_dismissed_at = Some(time);
+                }
             }
             self.menu_was_focused = outcome.was_focused;
-            self.apply_menu_action(outcome.action);
+            self.apply_menu_action(outcome.action, now);
         }
 
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);

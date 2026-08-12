@@ -12,14 +12,18 @@ actually went — not how long a ticket was open.
 
 ![What each part of the bar does](docs/bar-anatomy.svg)
 
-| Where       | Left click | Right click            | Middle click        |
-| ----------- | ---------- | ---------------------- | ------------------- |
-| drag handle | move       | —                      | —                   |
-| task name   | rename     | —                      | show the task stack |
-| `+`         | new task   | finish the current one | take a break        |
-| `≡`         | menu       | —                      | —                   |
+| Where       | Click      | Hold                                  |
+| ----------- | ---------- | ------------------------------------- |
+| drag handle | —          | drag to move (frameless windows only) |
+| task name   | rename     | 2 seconds: finish it, or end a break  |
+| fork        | task stack | take a break                          |
+| `+`         | new task   | put a finished task back              |
+| `≡`         | menu       | daily timer                           |
 
-Every control says the same on hover, so the table is a reminder, not something to learn.
+Left button only — no right click, no middle click, no double click, so a trackpad or a
+touchscreen can reach everything. While you hold, the control fills up to show how far the
+hold has come; letting go early does the click instead. Every hold is also an entry in the
+menu, because a touchscreen never shows a tooltip.
 
 ## Install
 
@@ -70,33 +74,36 @@ scoop install wiptracker
 
 ## Usage
 
-**Start a task.** Left-click `+`. A task called `new task 1` appears on the bar, its clock
+**Start a task.** Click `+`. A task called `new task 1` appears on the bar, its clock
 starts, and the name is immediately open for editing with the placeholder selected — type
 what you are actually doing and press Enter. Escape keeps the placeholder. The number never
 repeats, so `new task 7` means the same task tomorrow.
 
-**Rename it later.** Left-click the task name. Enter commits, Escape restores the old name.
+**Rename it later.** Click the task name. Enter commits, Escape restores the old name.
 
-**Interrupted?** Left-click `+` again. The new task goes on top of the stack and takes over
+**Interrupted?** Click `+` again. The new task goes on top of the stack and takes over
 the bar; the one underneath stops collecting time but stays open.
 
-**Switch back.** Middle-click the task name, or pick _select_ from the menu. The task stack
+**Switch back.** Click the fork button, or pick _select_ from the menu. The task stack
 opens in its own window: focused task first, everything else in stack order, `pause` last,
 each row with today's time and its total. Click one to work on it again.
 
-**Take a break.** Middle-click `+`, or pick `pause` in the task stack. It is a permanent task that can never be
-finished, so breaks show up in the reports like everything else. Right-click `+` while
-`pause` is on top to end the break and return to what you were doing.
+**Take a break.** Hold the fork button, or pick `pause` in the task stack. It is a
+permanent task that can never be finished, so breaks show up in the reports like everything
+else. Holding the name for two seconds while `pause` is on top ends the break and returns
+you to what you were doing.
 
-**Finish a task.** Right-click `+`. The task leaves the stack, its end time is recorded,
-and the task underneath comes back. There is no confirmation — see _revive_ below if you
-did not mean it. When nothing else is open, `pause` takes over.
+**Finish a task.** Hold the task name for two seconds. The bar fills up while you hold,
+and letting go early renames instead — long enough that it cannot happen by accident, so
+there is no confirmation on top. The task leaves the stack, its end time is recorded, and
+the task underneath comes back; see _revive_ below if you did not mean it. When nothing
+else is open, `pause` takes over.
 
-**Set a daily limit.** Menu → _timer_ lists the open tasks and a default for new ones.
-Click a row, pick a duration, and WipTracker beeps once when that task has been worked on
-that long today — and the clock on the bar turns amber for the rest of the day, so a
-missed beep is not a missed limit. _off_ removes the alarm; the default applies to every
-task created afterwards.
+**Set a daily limit.** Hold the menu button, or menu → _timer_. It lists the open tasks
+and a default for new ones. Click a row, pick a duration, and WipTracker beeps once when
+that task has been worked on that long today — and the clock on the bar turns amber for the
+rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
+default applies to every task created afterwards.
 
 **Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.
@@ -113,11 +120,12 @@ totals down the side and along the bottom. Use _previous_ / _next_ / _today_ to 
 between weeks, or type any date as `YYYY-MM-DD` into _jump to date_ and press Enter to see
 the week containing it.
 
-**Undo a finish.** Menu → _revive_ lists the tasks finished in the last 30 days, most
-recent first. Clicking one puts it back on top of the stack and clears its end time; its
-total keeps counting from where it left off. Older tasks are not deleted — they simply stop
-cluttering this list, and still appear in the week overview. The entry is greyed out when
-there is nothing to revive, and the window closes itself once the last one is back.
+**Undo a finish.** Hold `+`, or menu → _revive_. It lists the tasks finished in the last
+30 days, most recent first. Clicking one puts it back on top of the stack and clears its
+end time; its total keeps counting from where it left off. Older tasks are not deleted —
+they simply stop cluttering this list, and still appear in the week overview. The entry is
+greyed out when there is nothing to revive, and the window closes itself once the last one
+is back.
 
 **Export the numbers.** The end-day and week windows have an _export_ button that copies
 the data to the clipboard as JSON — one row per task per day, `{ "date", "task",
@@ -128,8 +136,10 @@ filter downstream if you are booking billable time.
 which is what the timers and the end-day report count. Hover it for the all-time total, or
 open the task stack, which lists both. Menu → _hide duration_ leaves just the task name.
 
-**Move the bar.** Drag the dotted handle at the left edge — or the task name, or anywhere
-else that is not a button. The position is remembered. The move is handed to the window
+**Move the bar.** Drag the dotted handle at the left edge. That is the only part that
+moves the window: the name is held to finish a task, and a stray drag on the background
+used to move the bar by accident. The handle is gone when the window has a frame, because
+the title bar does the job. The position is remembered. The move is handed to the window
 manager, so it snaps and behaves like dragging any other window.
 
 **Can't move it?** Menu → _show window frame_ gives the window its normal title bar, which

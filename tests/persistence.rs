@@ -41,7 +41,7 @@ fn the_app_resumes_the_stored_state_and_writes_its_own_changes_back() {
     assert!(snapshot.is_some(), "the stored snapshot should be found");
 
     let mut harness = Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
         .wgpu()
         .build_eframe(|cc| WipTracker::start(cc, Box::new(store), snapshot));
     harness.run();
@@ -90,7 +90,7 @@ fn a_first_run_starts_from_an_empty_database() {
     assert!(snapshot.is_none());
 
     let mut harness = Harness::builder()
-        .with_size(theme::BAR_SIZE)
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
         .wgpu()
         .build_eframe(|cc| WipTracker::start(cc, Box::new(store), snapshot));
     harness.run();

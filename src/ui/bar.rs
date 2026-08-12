@@ -1,11 +1,9 @@
 //! The always-on-top one-line bar.
 
-use egui::{
-    Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui, ViewportCommand,
-};
+use egui::{Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui};
 
 use crate::theme;
-use crate::ui::widgets::{Icon, grip, icon_button, tooltip};
+use crate::ui::widgets::{Icon, Press, grip, icon_button, sweep, tooltip, track_press};
 
 /// What the user asked for by interacting with the bar this frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -16,16 +14,26 @@ pub enum BarAction {
     FinishTask,
     ToggleMenu,
     StartRename,
-    /// Middle-click on the task name: show the task stack so another task can be picked.
+    /// Show the task stack so another task can be picked.
     OpenStack,
-    /// Middle-click on `+`: straight to a break.
+    /// Straight to a break.
     SwitchToPause,
+    /// Put a finished task back on the stack.
+    OpenRevive,
+    /// Set the focused task's daily timer.
+    OpenTimer,
 }
 
-const NAME_TOOLTIP: &str = "Left click: rename this task\nMiddle click: show the task stack";
-const PLUS_TOOLTIP: &str =
-    "Left click: start a new task\nRight click: finish this task\nMiddle click: take a break";
-const MENU_TOOLTIP: &str = "Left click: open the menu";
+/// How long the destructive hold takes. Finishing a task has to be meant.
+pub const HOLD_FINISH: f32 = 2.0;
+/// How long every other hold takes.
+pub const HOLD_QUICK: f32 = 0.5;
+
+const NAME_TOOLTIP: &str = "Click: rename this task\nHold for 2 seconds: finish it, or end \
+                            the break when paused";
+const FORK_TOOLTIP: &str = "Click: show the task stack\nHold: take a break";
+const PLUS_TOOLTIP: &str = "Click: start a new task\nHold: put a finished task back";
+const MENU_TOOLTIP: &str = "Click: open or close the menu\nHold: set the daily timer";
 const GRIP_TOOLTIP: &str = "Drag to move the bar";
 /// What the clock shows, and what to say about it on hover.
 #[derive(Clone, Copy)]
@@ -36,6 +44,17 @@ pub struct Clock<'a> {
     pub tooltip: &'a str,
     /// Whether today's time has passed the task's daily timer.
     pub over_limit: bool,
+}
+
+/// How the bar is drawn this frame.
+#[derive(Clone, Copy)]
+pub struct BarState<'a> {
+    pub clock: Option<Clock<'a>>,
+    /// Whether the window wears its window manager's frame, which decides whether the
+    /// grip is drawn and therefore how wide the bar is.
+    pub decorated: bool,
+    /// Whether there is a finished task that could be put back on the stack.
+    pub can_revive: bool,
 }
 
 /// Hands the drag to the window manager, which then owns it completely.
@@ -49,7 +68,7 @@ pub struct Clock<'a> {
 /// is how the bar is dragged there.
 fn drag_window(ui: &Ui, response: &Response) {
     if response.drag_started() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
 }
 
@@ -63,10 +82,10 @@ pub fn frame() -> Frame {
 /// Draws the bar with the task name replaced by a caller-supplied editor.
 pub fn show_with_editor(
     ui: &mut Ui,
-    clock: Option<Clock<'_>>,
+    state: BarState<'_>,
     editor: impl FnOnce(&mut Ui),
 ) -> BarAction {
-    show_inner(ui, None, clock, Some(editor))
+    show_inner(ui, None, state, Some(editor))
 }
 
 /// Replaces the whole bar with a message explaining why the app will not run.
@@ -80,8 +99,38 @@ pub fn show_error(ui: &mut Ui, message: &str) {
     });
 }
 
-pub fn show(ui: &mut Ui, name: &str, clock: Option<Clock<'_>>) -> BarAction {
-    show_inner(ui, Some(name), clock, None::<fn(&mut Ui)>)
+pub fn show(ui: &mut Ui, name: &str, state: BarState<'_>) -> BarAction {
+    show_inner(ui, Some(name), state, None::<fn(&mut Ui)>)
+}
+
+/// Turns what a press produced into the action it stands for.
+fn action_of(press: Press, click: BarAction, hold: BarAction) -> Option<BarAction> {
+    if press.long_pressed {
+        Some(hold)
+    } else if press.clicked {
+        Some(click)
+    } else {
+        None
+    }
+}
+
+/// Draws the task name, and reports what holding or clicking it asked for.
+///
+/// One widget, not a label stacked on an invisible button: a second widget over the same
+/// rectangle takes the pointer for itself, and the hold then never starts. That leaves the
+/// sweep to be painted over the text rather than under it, which is what
+/// [`theme::HOLD_FILL_OVER`] is for.
+fn show_name(ui: &mut Ui, name: &str) -> Option<BarAction> {
+    let response = ui.add(
+        Label::new(RichText::new(name).color(theme::TEXT))
+            .truncate()
+            .selectable(false)
+            .sense(Sense::click()),
+    );
+    let press = track_press(ui, &response, HOLD_FINISH, true);
+    sweep(ui, response.rect, press.progress, theme::HOLD_FILL_OVER);
+    tooltip(response, format!("{name}\n\n{NAME_TOOLTIP}"));
+    action_of(press, BarAction::StartRename, BarAction::FinishTask)
 }
 
 /// Draws the bar contents and reports what the user did.
@@ -91,36 +140,41 @@ pub fn show(ui: &mut Ui, name: &str, clock: Option<Clock<'_>>) -> BarAction {
 fn show_inner(
     ui: &mut Ui,
     name: Option<&str>,
-    clock: Option<Clock<'_>>,
+    state: BarState<'_>,
     editor: Option<impl FnOnce(&mut Ui)>,
 ) -> BarAction {
     let mut action = BarAction::None;
 
     // The window has a fixed size, so the row does too: relying on the parent's available
     // space would make the layout depend on how the bar happens to be embedded.
-    let width = theme::BAR_SIZE.x - 2.0 * theme::BAR_MARGIN;
-    let height = theme::BAR_SIZE.y;
+    let bar = theme::bar_size(state.decorated);
+    let width = bar.x - 2.0 * theme::BAR_MARGIN;
+    let height = bar.y;
     ui.spacing_mut().item_spacing.x = 2.0;
 
     ui.allocate_ui_with_layout(
         egui::vec2(width, height),
         Layout::left_to_right(Align::Center),
         |ui| {
-            let row = ui.max_rect();
-            let surface = ui.interact(row, ui.id().with("drag_surface"), Sense::click_and_drag());
-            drag_window(ui, &surface);
-
-            let clock_width = if clock.is_some() {
+            let clock_width = if state.clock.is_some() {
                 theme::CLOCK_WIDTH
             } else {
                 0.0
             };
-            let label_width =
-                (width - theme::GRIP_WIDTH - clock_width - 2.0 * theme::BUTTON_SIZE.x - 6.0)
-                    .max(0.0);
+            let label_width = (width
+                - theme::grip_width(state.decorated)
+                - clock_width
+                - theme::BUTTON_COUNT * theme::BUTTON_SIZE.x
+                - 6.0)
+                .max(0.0);
 
-            let handle = tooltip(grip(ui), GRIP_TOOLTIP);
-            drag_window(ui, &handle);
+            // The grip is the only drag surface. Nothing else on the bar moves the window:
+            // a stray press on the background used to drag it, and the name cannot both be
+            // dragged and held for two seconds.
+            if !state.decorated {
+                let handle = tooltip(grip(ui), GRIP_TOOLTIP);
+                drag_window(ui, &handle);
+            }
 
             ui.allocate_ui_with_layout(
                 egui::vec2(label_width, height),
@@ -128,40 +182,38 @@ fn show_inner(
                 |ui| {
                     if let Some(editor) = editor {
                         editor(ui);
-                    } else if let Some(name) = name {
-                        let response = tooltip(
-                            ui.add(
-                                Label::new(RichText::new(name).color(theme::TEXT))
-                                    .truncate()
-                                    .selectable(false)
-                                    .sense(Sense::click_and_drag()),
-                            ),
-                            format!("{name}\n\n{NAME_TOOLTIP}"),
-                        );
-                        drag_window(ui, &response);
-                        if response.clicked() {
-                            action = BarAction::StartRename;
-                        } else if response.middle_clicked() {
-                            action = BarAction::OpenStack;
-                        }
+                    } else if let Some(name) = name
+                        && let Some(asked) = show_name(ui, name)
+                    {
+                        action = asked;
                     }
                 },
             );
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if tooltip(icon_button(ui, Icon::Burger), MENU_TOOLTIP).clicked() {
-                    action = BarAction::ToggleMenu;
-                }
-                let plus = tooltip(icon_button(ui, Icon::Plus), PLUS_TOOLTIP);
-                if plus.clicked() {
-                    action = BarAction::AddTask;
-                } else if plus.secondary_clicked() {
-                    action = BarAction::FinishTask;
-                } else if plus.middle_clicked() {
-                    action = BarAction::SwitchToPause;
+                let (burger, press) = icon_button(ui, Icon::Burger, HOLD_QUICK, true);
+                tooltip(burger, MENU_TOOLTIP);
+                if let Some(asked) = action_of(press, BarAction::ToggleMenu, BarAction::OpenTimer) {
+                    action = asked;
                 }
 
-                if let Some(clock) = clock {
+                // Nothing to revive means no sweep: a hold that fills up and then does
+                // nothing reads as a broken button.
+                let (plus, press) = icon_button(ui, Icon::Plus, HOLD_QUICK, state.can_revive);
+                tooltip(plus, PLUS_TOOLTIP);
+                if let Some(asked) = action_of(press, BarAction::AddTask, BarAction::OpenRevive) {
+                    action = asked;
+                }
+
+                let (fork, press) = icon_button(ui, Icon::Fork, HOLD_QUICK, true);
+                tooltip(fork, FORK_TOOLTIP);
+                if let Some(asked) =
+                    action_of(press, BarAction::OpenStack, BarAction::SwitchToPause)
+                {
+                    action = asked;
+                }
+
+                if let Some(clock) = state.clock {
                     let color = if clock.over_limit {
                         theme::OVER_LIMIT
                     } else {
