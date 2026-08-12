@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
 
-use crate::domain::ports::{Snapshot, Store, StoreError};
+use crate::domain::ports::{Alarm, Snapshot, Store, StoreError};
 use crate::domain::task::{PAUSE_ID, TaskId};
 use crate::domain::tracker::Tracker;
+use crate::infrastructure::beeper::Beeper;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
 use crate::ui::format;
@@ -21,6 +22,34 @@ use crate::ui::windows::{self, OpenWindows};
 /// Windows all behave, and get the clean frameless bar.
 pub fn prefers_decorations() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("DISPLAY").is_none()
+}
+
+/// Pins the dark look, whatever the desktop's own theme is.
+///
+/// egui follows the system theme by default and re-applies it every frame, which on a
+/// light desktop left the bar's own dark frame filled with light widgets: white buttons
+/// carrying near-white labels, and a white text field with white text. Pinning the
+/// preference is what makes the explicit colours below stick.
+fn install_theme(ctx: &egui::Context) {
+    ctx.set_theme(egui::ThemePreference::Dark);
+
+    let mut visuals = egui::Visuals::dark();
+    visuals.panel_fill = theme::BACKGROUND;
+    visuals.window_fill = theme::BACKGROUND;
+    // The background behind a text field, which is what the rename editor sits on.
+    visuals.extreme_bg_color = theme::FIELD;
+    visuals.widgets.noninteractive.bg_fill = theme::BACKGROUND;
+    visuals.widgets.inactive.bg_fill = theme::BUTTON_IDLE;
+    visuals.widgets.inactive.weak_bg_fill = theme::BUTTON_IDLE;
+    visuals.widgets.hovered.bg_fill = theme::BUTTON_HOVER;
+    visuals.widgets.hovered.weak_bg_fill = theme::BUTTON_HOVER;
+    visuals.widgets.active.bg_fill = theme::BUTTON_ACTIVE;
+    visuals.widgets.active.weak_bg_fill = theme::BUTTON_ACTIVE;
+    visuals.selection.bg_fill = theme::BUTTON_ACTIVE;
+    visuals.override_text_color = None;
+
+    ctx.set_visuals_of(egui::Theme::Dark, visuals.clone());
+    ctx.set_visuals_of(egui::Theme::Light, visuals);
 }
 
 /// How often state is written even when nothing changed, so a crash costs little.
@@ -39,8 +68,14 @@ pub struct WipTracker {
     window_pos: Option<(f32, f32)>,
     menu_open: bool,
     menu_was_focused: bool,
-    /// Set when the frame preference changed and the window has yet to be told.
-    decorations_pending: bool,
+    /// A short message shown in the menu, such as "restart to apply".
+    notice: Option<String>,
+    /// Whether the restored window position has been checked against the screen.
+    position_checked: bool,
+    /// Sounds when a task's daily timer runs out. `None` in tests that want silence.
+    alarm: Option<Box<dyn Alarm>>,
+    /// The tasks whose alarm sounded this session, kept for the tests to inspect.
+    alarms_sounded: Vec<TaskId>,
     rename: Option<Rename>,
     windows: OpenWindows,
 }
@@ -71,6 +106,7 @@ impl WipTracker {
             None => Self::with_tracker(cc, Tracker::new(now)),
         };
         app.store = Some(store);
+        app.alarm = Some(Box::new(Beeper::new()));
         app
     }
 
@@ -87,12 +123,7 @@ impl WipTracker {
 
     /// Builds the app around a prepared tracker. Used by tests to start from a known state.
     pub fn with_tracker(cc: &eframe::CreationContext<'_>, tracker: Tracker) -> Self {
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = theme::BACKGROUND;
-        visuals.window_fill = theme::BACKGROUND;
-        visuals.widgets.hovered.bg_fill = theme::BUTTON_HOVER;
-        visuals.widgets.hovered.weak_bg_fill = theme::BUTTON_HOVER;
-        cc.egui_ctx.set_visuals(visuals);
+        install_theme(&cc.egui_ctx);
 
         Self {
             tracker,
@@ -105,7 +136,10 @@ impl WipTracker {
             window_pos: None,
             menu_open: false,
             menu_was_focused: false,
-            decorations_pending: false,
+            notice: None,
+            position_checked: false,
+            alarm: None,
+            alarms_sounded: Vec::new(),
             rename: None,
             windows: OpenWindows::default(),
         }
@@ -145,6 +179,16 @@ impl WipTracker {
         self.menu_open
     }
 
+    /// Replaces the alarm, so a test can hear it without a sound card.
+    pub fn set_alarm(&mut self, alarm: Box<dyn Alarm>) {
+        self.alarm = Some(alarm);
+    }
+
+    /// The tasks whose daily timer has gone off since the app started.
+    pub fn alarms_sounded(&self) -> &[TaskId] {
+        &self.alarms_sounded
+    }
+
     pub fn is_renaming(&self) -> bool {
         self.rename.is_some()
     }
@@ -173,15 +217,72 @@ impl WipTracker {
         }
     }
 
+    /// Today's time on the focused task, what to say about it on hover, and whether it has
+    /// passed the task's daily timer.
+    fn clock_parts(&self, now: DateTime<Local>) -> Option<(String, String, bool)> {
+        let task = self.tracker.focused()?;
+        let today = self.tracker.duration_on(task.id, now.date_naive());
+        let mut tooltip = format!(
+            "Today: {}\nAll time: {}",
+            format::clock(today),
+            format::clock(task.total)
+        );
+        let over_limit = task.has_timer() && today >= task.timer;
+        if task.has_timer() {
+            tooltip.push_str(&format!("\nDaily timer: {}", format::coarse(task.timer)));
+            if over_limit {
+                tooltip.push_str(" — reached");
+            }
+        }
+        Some((format::clock(today), tooltip, over_limit))
+    }
+
     fn remember_window_pos(&mut self, ctx: &egui::Context) {
         // Wayland never reports a window position; there the bar simply opens where the
         // compositor puts it.
         let Some(rect) = ctx.input(|i| i.viewport().outer_rect) else {
             return;
         };
+        if self.rescue_offscreen_window(ctx, rect) {
+            return;
+        }
         // Deliberately not marked dirty: a drag would otherwise commit a transaction per
         // frame. The periodic save and the save on exit pick the position up.
         self.window_pos = Some((rect.min.x, rect.min.y));
+    }
+
+    /// Pulls the window back onto the screen if it opened outside it.
+    ///
+    /// A position stored while a second monitor was connected points nowhere once that
+    /// monitor is gone, and an undecorated window that cannot be seen cannot be dragged
+    /// back. egui reports the size of the monitor the window is on, not the whole desktop
+    /// layout, so this only catches a window that is fully outside it — which is exactly
+    /// the unrecoverable case.
+    ///
+    /// Returns whether the window was moved, in which case the position reported this
+    /// frame is the stale one and should not be stored.
+    fn rescue_offscreen_window(&mut self, ctx: &egui::Context, rect: egui::Rect) -> bool {
+        if self.position_checked {
+            return false;
+        }
+        let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) else {
+            return false;
+        };
+        self.position_checked = true;
+
+        let desktop = egui::Rect::from_min_size(egui::Pos2::ZERO, monitor);
+        // A negative coordinate is normal on a multi-monitor desktop, so only a window
+        // with no overlap at all counts as lost.
+        if desktop.intersects(rect) {
+            return false;
+        }
+        self.window_pos = None;
+        self.dirty = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+            (monitor.x - rect.width()).max(0.0) / 2.0,
+            (monitor.y - rect.height()).max(0.0) / 4.0,
+        )));
+        true
     }
 
     /// Begins renaming the focused task, as a right-click on its name does.
@@ -203,8 +304,11 @@ impl WipTracker {
     fn apply_bar_action(&mut self, action: BarAction, now: DateTime<Local>) {
         match action {
             BarAction::AddTask => {
+                // A fresh task is called "new task 7"; the point of creating it is to say
+                // what it really is, so the name is immediately open for editing with the
+                // placeholder selected.
                 self.tracker.push_new_task(now);
-                self.rename = None;
+                self.start_rename();
                 self.dirty = true;
             }
             BarAction::FinishTask => {
@@ -217,10 +321,7 @@ impl WipTracker {
                 self.menu_was_focused = false;
             }
             BarAction::StartRename => self.start_rename(),
-            BarAction::OpenSelect => {
-                self.menu_open = true;
-                self.menu_was_focused = false;
-            }
+            BarAction::OpenStack => self.windows.stack = true,
             BarAction::SwitchToPause => {
                 let _ = self.tracker.select(PAUSE_ID, now);
                 self.dirty = true;
@@ -229,19 +330,23 @@ impl WipTracker {
         }
     }
 
-    fn apply_menu_action(&mut self, action: MenuAction, now: DateTime<Local>) {
+    fn apply_menu_action(&mut self, action: MenuAction) {
         match action {
-            MenuAction::Select(id) => {
-                let _ = self.tracker.select(id, now);
-                self.dirty = true;
-            }
+            MenuAction::OpenStack => self.windows.stack = true,
+            MenuAction::OpenTimer => self.windows.timer = true,
             MenuAction::ToggleDuration => {
                 self.show_duration = !self.show_duration;
                 self.dirty = true;
             }
             MenuAction::ToggleDecorations => {
+                // Changing this on a live window leaves the frame drawn over the bar, so
+                // the preference is only stored; the window is built from it at startup.
                 self.decorated = Some(!self.is_decorated());
-                self.decorations_pending = true;
+                self.notice = Some(if self.is_decorated() {
+                    "Restart WipTracker to get the window frame.".to_owned()
+                } else {
+                    "Restart WipTracker to drop the window frame.".to_owned()
+                });
                 self.dirty = true;
             }
             MenuAction::OpenGroom => self.windows.groom = true,
@@ -256,14 +361,24 @@ impl WipTracker {
         let Some(rename) = &mut self.rename else {
             return false;
         };
-        let response = ui.add_sized(
-            egui::vec2(theme::LABEL_WIDTH, theme::BAR_SIZE.y - 8.0),
-            egui::TextEdit::singleline(&mut rename.text)
-                .text_color(theme::TEXT)
-                .desired_width(theme::LABEL_WIDTH),
-        );
+        let id = egui::Id::new("rename_editor");
+        let output = egui::TextEdit::singleline(&mut rename.text)
+            .id(id)
+            .text_color(theme::TEXT)
+            .desired_width(theme::LABEL_WIDTH)
+            .show(ui);
+        let response = output.response;
         if !rename.focus_requested {
             response.request_focus();
+            // Select the whole placeholder, so the first keystroke replaces it.
+            let mut state = output.state;
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(rename.text.chars().count()),
+                )));
+            state.store(ui.ctx(), id);
             rename.focus_requested = true;
         }
 
@@ -291,19 +406,34 @@ impl eframe::App for WipTracker {
             return;
         }
 
-        self.tracker.accrue(now);
-        ctx.request_repaint_after(Duration::from_secs(1));
-        self.remember_window_pos(&ctx);
-        if self.decorations_pending {
-            self.decorations_pending = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(self.is_decorated()));
+        // The desktop can switch to a light theme while the app runs, and egui follows it
+        // by default, so the preference is re-asserted rather than set once at startup.
+        if ctx.options(|options| options.theme_preference) != egui::ThemePreference::Dark {
+            install_theme(&ctx);
         }
 
+        self.tracker.accrue(now);
+        for id in self.tracker.take_due_alarms(now) {
+            self.alarms_sounded.push(id);
+            if let Some(alarm) = &self.alarm {
+                alarm.sound();
+            }
+            self.dirty = true;
+        }
+        ctx.request_repaint_after(Duration::from_secs(1));
+        self.remember_window_pos(&ctx);
+
         let name = self.tracker.focused_name().to_owned();
-        let clock = self
-            .show_duration
-            .then(|| self.tracker.focused().map(|task| format::clock(task.total)))
-            .flatten();
+        // The clock shows today's time so that the number agrees with the task's timer and
+        // with the end-day report; the all-time total lives in the tooltip.
+        let clock_parts = self.show_duration.then(|| self.clock_parts(now)).flatten();
+        let clock = clock_parts
+            .as_ref()
+            .map(|(today, tooltip, over_limit)| bar::Clock {
+                today,
+                tooltip,
+                over_limit: *over_limit,
+            });
 
         let mut action = BarAction::None;
         let mut renaming = false;
@@ -312,11 +442,11 @@ impl eframe::App for WipTracker {
             .show(ui, |ui| {
                 if self.rename.is_some() {
                     renaming = true;
-                    action = bar::show_with_editor(ui, clock.as_deref(), |ui| {
+                    action = bar::show_with_editor(ui, clock, |ui| {
                         self.show_rename_editor(ui);
                     });
                 } else {
-                    action = bar::show(ui, &name, clock.as_deref());
+                    action = bar::show(ui, &name, clock);
                 }
             });
         let _ = renaming;
@@ -325,15 +455,22 @@ impl eframe::App for WipTracker {
         if self.menu_open {
             let outcome = menu::show(
                 &ctx,
-                &self.tracker,
+                !self
+                    .tracker
+                    .recently_finished(windows::REVIVE_DAYS, now)
+                    .is_empty(),
                 self.show_duration,
                 self.is_decorated(),
+                self.notice.as_deref(),
                 self.window_pos,
                 self.menu_was_focused,
             );
             self.menu_open = outcome.keep_open;
+            if !self.menu_open {
+                self.notice = None;
+            }
             self.menu_was_focused = outcome.was_focused;
-            self.apply_menu_action(outcome.action, now);
+            self.apply_menu_action(outcome.action);
         }
 
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);

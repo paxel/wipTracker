@@ -1,0 +1,21 @@
+{
+  "version": "{{VERSION}}",
+  "description": "One-line always-on-top bar showing the task you are focused on right now",
+  "homepage": "https://github.com/paxel/wipTracker",
+  "license": "MIT OR Apache-2.0",
+  "url": "https://github.com/paxel/wipTracker/releases/download/v{{VERSION}}/wiptracker-{{VERSION}}-windows-x86_64.zip",
+  "hash": "{{SHA_WINDOWS_X86_64}}",
+  "bin": "wiptracker.exe",
+  "shortcuts": [
+    [
+      "wiptracker.exe",
+      "WipTracker"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/paxel/wipTracker"
+  },
+  "autoupdate": {
+    "url": "https://github.com/paxel/wipTracker/releases/download/v$version/wiptracker-$version-windows-x86_64.zip"
+  }
+}

@@ -1,27 +1,24 @@
-//! The burger menu.
+//! The burger menu: a short list of commands, each opening a window of its own.
 //!
 //! The bar is a tiny window, so the menu cannot be drawn inside it: it opens as its own
 //! small undecorated window just below the bar.
 
-use chrono::Local;
 use egui::{Align, Context, Layout, RichText, ViewportBuilder, ViewportId};
 
-use crate::domain::task::TaskId;
-use crate::domain::tracker::Tracker;
 use crate::theme;
-use crate::ui::format;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MenuAction {
     #[default]
     None,
-    Select(TaskId),
-    ToggleDuration,
-    ToggleDecorations,
+    OpenStack,
+    OpenTimer,
     OpenGroom,
     OpenEndDay,
     OpenWeek,
     OpenRevive,
+    ToggleDuration,
+    ToggleDecorations,
 }
 
 pub struct MenuOutcome {
@@ -31,8 +28,7 @@ pub struct MenuOutcome {
     pub was_focused: bool,
 }
 
-const MENU_WIDTH: f32 = 260.0;
-const ROW_HEIGHT: f32 = 22.0;
+const MENU_WIDTH: f32 = 270.0;
 
 /// Draws the menu window and reports what was picked.
 ///
@@ -43,16 +39,86 @@ const ROW_HEIGHT: f32 = 22.0;
 /// still opening, not being dismissed.
 pub fn show(
     ctx: &Context,
-    tracker: &Tracker,
+    can_revive: bool,
     show_duration: bool,
     decorated: bool,
+    notice: Option<&str>,
     below: Option<(f32, f32)>,
     was_focused: bool,
 ) -> MenuOutcome {
-    let open_tasks = tracker.open_tasks_top_first();
-    let today = Local::now().date_naive();
-    let rows = open_tasks.len() as f32 + 7.0;
-    let height = (rows * ROW_HEIGHT + 24.0).min(420.0);
+    let duration_label = if show_duration {
+        "hide duration"
+    } else {
+        "show duration"
+    };
+    let frame_label = if decorated {
+        "hide window frame"
+    } else {
+        "show window frame"
+    };
+
+    // label, action, enabled, tooltip, closes the menu
+    let entries: [(&str, MenuAction, bool, &str, bool); 8] = [
+        (
+            "select",
+            MenuAction::OpenStack,
+            true,
+            "Show the task stack and switch to another task",
+            true,
+        ),
+        (
+            "timer",
+            MenuAction::OpenTimer,
+            true,
+            "Set how long each task may run per day before it beeps",
+            true,
+        ),
+        (
+            "groom",
+            MenuAction::OpenGroom,
+            true,
+            "Finish several open tasks at once",
+            true,
+        ),
+        (
+            "end day",
+            MenuAction::OpenEndDay,
+            true,
+            "Today's report; closing the day saves and quits",
+            true,
+        ),
+        (
+            "week",
+            MenuAction::OpenWeek,
+            true,
+            "One row per task, one column per weekday",
+            true,
+        ),
+        (
+            "revive",
+            MenuAction::OpenRevive,
+            can_revive,
+            "Put a finished task back on the stack",
+            true,
+        ),
+        (
+            duration_label,
+            MenuAction::ToggleDuration,
+            true,
+            "Show or hide the running clock on the bar",
+            true,
+        ),
+        (
+            frame_label,
+            MenuAction::ToggleDecorations,
+            true,
+            "Give the window its normal title bar, so any desktop can move it.\nTakes \
+             effect after a restart",
+            false,
+        ),
+    ];
+
+    let height = entries.len() as f32 * 26.0 + if notice.is_some() { 56.0 } else { 20.0 };
 
     let mut action = MenuAction::None;
     let mut keep_open = true;
@@ -78,39 +144,7 @@ pub fn show(
             )
             .show(ctx, |ui| {
                 ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
-                    ui.label(RichText::new("switch to").color(theme::TEXT_DIM).small());
-                    for task in &open_tasks {
-                        let is_current = task.id == tracker.focused_id();
-                        let today_time = format::coarse(tracker.duration_on(task.id, today));
-                        let text = format!("{}   {today_time}", task.name);
-                        if is_current {
-                            ui.label(RichText::new(format!("● {text}")).color(theme::TEXT));
-                        } else if ui.button(RichText::new(text).color(theme::TEXT)).clicked() {
-                            action = MenuAction::Select(task.id);
-                            keep_open = false;
-                        }
-                    }
-
-                    ui.separator();
-                    let duration_label = if show_duration {
-                        "hide duration"
-                    } else {
-                        "show duration"
-                    };
-                    let frame_label = if decorated {
-                        "hide window frame"
-                    } else {
-                        "show window frame"
-                    };
-                    let can_revive = !tracker.finished_tasks().is_empty();
-                    for (label, picked, enabled) in [
-                        (duration_label, MenuAction::ToggleDuration, true),
-                        (frame_label, MenuAction::ToggleDecorations, true),
-                        ("groom", MenuAction::OpenGroom, true),
-                        ("end day", MenuAction::OpenEndDay, true),
-                        ("week", MenuAction::OpenWeek, true),
-                        ("revive", MenuAction::OpenRevive, can_revive),
-                    ] {
+                    for (label, picked, enabled, tooltip, closes) in entries {
                         let color = if enabled {
                             theme::TEXT
                         } else {
@@ -121,11 +155,21 @@ pub fn show(
                                 enabled,
                                 egui::Button::new(RichText::new(label).color(color)),
                             )
+                            .on_hover_text(tooltip)
                             .clicked();
                         if clicked {
                             action = picked;
-                            keep_open = false;
+                            keep_open = !closes;
                         }
+                    }
+
+                    if let Some(notice) = notice {
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(notice)
+                                .color(egui::Color32::from_rgb(0xE0, 0xB0, 0x5A))
+                                .small(),
+                        );
                     }
                 });
             });

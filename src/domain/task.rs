@@ -24,6 +24,10 @@ pub struct Task {
     pub finished_at: Option<DateTime<Local>>,
     /// Focus time collected over the task's whole life.
     pub total: Duration,
+    /// How long this task may be worked on per day before the alarm sounds.
+    /// Zero means no alarm.
+    #[serde(default)]
+    pub timer: Duration,
 }
 
 impl Task {
@@ -34,7 +38,18 @@ impl Task {
             created_at,
             finished_at: None,
             total: Duration::ZERO,
+            timer: Duration::ZERO,
         }
+    }
+
+    /// The same task with a daily timer set.
+    pub fn with_timer(mut self, timer: Duration) -> Self {
+        self.timer = timer;
+        self
+    }
+
+    pub fn has_timer(&self) -> bool {
+        !self.timer.is_zero()
     }
 
     pub fn pause(created_at: DateTime<Local>) -> Self {

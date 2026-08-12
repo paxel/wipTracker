@@ -1,4 +1,4 @@
-//! The report windows: groom, end day, week and revive.
+//! The windows behind the menu: the task stack, timers, groom, end day, week and revive.
 //!
 //! Each is a normal decorated window of its own, so it can be moved, resized and closed
 //! like any other; the bar keeps working while they are open.
@@ -14,9 +14,14 @@ use crate::domain::tracker::Tracker;
 use crate::theme;
 use crate::ui::format;
 
+/// How far back the revive window looks.
+pub const REVIVE_DAYS: i64 = 30;
+
 /// Which report windows are open, and the little bit of state they each remember.
 #[derive(Default)]
 pub struct OpenWindows {
+    pub stack: bool,
+    pub timer: bool,
     pub groom: bool,
     pub end_day: bool,
     pub week: bool,
@@ -26,6 +31,9 @@ pub struct OpenWindows {
     week_anchor: Option<NaiveDate>,
     /// What the user typed into the week view's date field.
     week_input: String,
+    /// Which row of the timer window has its duration picker open. `None` is the default
+    /// timer's row.
+    timer_editing: Option<Option<TaskId>>,
 }
 
 /// What the windows did this frame.
@@ -45,6 +53,12 @@ pub fn show_all(
     now: DateTime<Local>,
 ) -> WindowOutcome {
     let mut outcome = WindowOutcome::default();
+    if open.stack {
+        outcome.changed |= stack(ctx, open, tracker, now);
+    }
+    if open.timer {
+        outcome.changed |= timer(ctx, open, tracker);
+    }
     if open.groom {
         outcome.changed |= groom(ctx, open, tracker, now);
     }
@@ -87,6 +101,182 @@ fn window(
             *open = false;
         }
     });
+}
+
+/// The task stack: the focused task on top, every other open task under it, the pause
+/// task last. Clicking a task brings it back to the top.
+fn stack(
+    ctx: &Context,
+    open: &mut OpenWindows,
+    tracker: &mut Tracker,
+    now: DateTime<Local>,
+) -> bool {
+    let today = now.date_naive();
+    let focused = tracker.focused_id();
+    let rows: Vec<(TaskId, String, Duration, Duration)> = tracker
+        .open_tasks_top_first()
+        .iter()
+        .map(|task| {
+            (
+                task.id,
+                task.name.clone(),
+                tracker.duration_on(task.id, today),
+                task.total,
+            )
+        })
+        .collect();
+
+    let mut pick: Option<TaskId> = None;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "stack",
+        "WipTracker — task stack",
+        [420.0, 320.0],
+        &mut still_open,
+        |ui| {
+            ui.heading("Task stack");
+            ui.label(
+                RichText::new("Top of the stack first. Click a task to work on it again.")
+                    .color(theme::TEXT_DIM)
+                    .small(),
+            );
+            ui.add_space(6.0);
+
+            egui::Grid::new("stack_rows")
+                .num_columns(3)
+                .striped(true)
+                .min_col_width(120.0)
+                .show(ui, |ui| {
+                    for (id, name, today_time, total) in &rows {
+                        let current = *id == focused;
+                        if current {
+                            ui.label(
+                                RichText::new(format!("● {name}"))
+                                    .color(theme::TEXT)
+                                    .strong(),
+                            )
+                            .on_hover_text("The task you are working on right now");
+                        } else if ui
+                            .button(RichText::new(name).color(theme::TEXT))
+                            .on_hover_text("Left click: work on this task")
+                            .clicked()
+                        {
+                            pick = Some(*id);
+                        }
+                        ui.label(
+                            RichText::new(format!("today {}", format::coarse(*today_time)))
+                                .color(theme::TEXT_DIM),
+                        );
+                        ui.label(
+                            RichText::new(format!("total {}", format::coarse(*total)))
+                                .color(theme::TEXT_DIM),
+                        );
+                        ui.end_row();
+                    }
+                });
+        },
+    );
+
+    open.stack = still_open;
+    if let Some(id) = pick {
+        let _ = tracker.select(id, now);
+        open.stack = false;
+        return true;
+    }
+    false
+}
+
+/// The timer window: one row per open task plus the default that new tasks inherit.
+fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
+    let default_timer = tracker.default_timer();
+    let rows: Vec<(Option<TaskId>, String, Duration)> =
+        std::iter::once((None, "default for new tasks".to_owned(), default_timer))
+            .chain(
+                tracker
+                    .open_tasks_top_first()
+                    .iter()
+                    .map(|task| (Some(task.id), task.name.clone(), task.timer)),
+            )
+            .collect();
+
+    let mut editing = open.timer_editing;
+    let mut chosen: Option<(Option<TaskId>, Duration)> = None;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "timer",
+        "WipTracker — timers",
+        [420.0, 340.0],
+        &mut still_open,
+        |ui| {
+            ui.heading("Daily timers");
+            ui.label(
+                RichText::new(
+                    "When a task has been worked on this long today, WipTracker beeps once. \
+                     Zero means no alarm.",
+                )
+                .color(theme::TEXT_DIM)
+                .small(),
+            );
+            ui.add_space(6.0);
+
+            for (id, name, timer) in &rows {
+                ui.horizontal(|ui| {
+                    let label = if timer.is_zero() {
+                        "off".to_owned()
+                    } else {
+                        format::coarse(*timer)
+                    };
+                    if ui
+                        .button(RichText::new(format!("{name}   {label}")).color(theme::TEXT))
+                        .on_hover_text("Left click: choose how long this may run per day")
+                        .clicked()
+                    {
+                        editing = if editing == Some(*id) {
+                            None
+                        } else {
+                            Some(*id)
+                        };
+                    }
+                });
+                if editing == Some(*id) {
+                    ui.horizontal_wrapped(|ui| {
+                        for (label, minutes) in [
+                            ("off", 0_u64),
+                            ("15m", 15),
+                            ("30m", 30),
+                            ("1h", 60),
+                            ("2h", 120),
+                            ("4h", 240),
+                            ("8h", 480),
+                        ] {
+                            if ui.button(label).clicked() {
+                                chosen = Some((*id, Duration::from_secs(minutes * 60)));
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
+            }
+        },
+    );
+
+    open.timer = still_open;
+    open.timer_editing = editing;
+    if let Some((id, duration)) = chosen {
+        match id {
+            Some(id) => {
+                let _ = tracker.set_timer(id, duration);
+            }
+            None => tracker.set_default_timer(duration),
+        }
+        open.timer_editing = None;
+        return true;
+    }
+    false
 }
 
 fn groom(
@@ -374,7 +564,7 @@ fn revive(
     now: DateTime<Local>,
 ) -> bool {
     let finished: Vec<(TaskId, String, Duration, String)> = tracker
-        .finished_tasks()
+        .recently_finished(REVIVE_DAYS, now)
         .iter()
         .map(|task| {
             (
@@ -399,9 +589,18 @@ fn revive(
         &mut still_open,
         |ui| {
             ui.heading("Finished tasks");
+            ui.label(
+                RichText::new(format!(
+                    "The last {REVIVE_DAYS} days. Older tasks stay in the week overview."
+                ))
+                .color(theme::TEXT_DIM)
+                .small(),
+            );
             ui.add_space(4.0);
             if finished.is_empty() {
-                ui.label("Nothing has been finished yet.");
+                ui.label(format!(
+                    "Nothing has been finished in the last {REVIVE_DAYS} days."
+                ));
                 return;
             }
             egui::Grid::new("revive_rows")
@@ -425,7 +624,7 @@ fn revive(
     if let Some(id) = revive_id {
         let _ = tracker.revive(id, now);
         // Nothing left to bring back, so the window has done its job.
-        open.revive = !tracker.finished_tasks().is_empty();
+        open.revive = !tracker.recently_finished(REVIVE_DAYS, now).is_empty();
         return true;
     }
     false

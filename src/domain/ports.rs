@@ -18,6 +18,9 @@ pub struct Snapshot {
     /// What was worked on, day by day.
     pub history: BTreeMap<NaiveDate, DayRecord>,
     pub next_number: u64,
+    /// The daily timer new tasks start with. Zero means no alarm.
+    #[serde(default)]
+    pub default_timer: std::time::Duration,
     pub show_duration: bool,
     /// Whether the window wears its window manager's frame. `None` means the user has not
     /// chosen, so the platform default applies.
@@ -36,6 +39,11 @@ pub enum StoreError {
     Write(String),
     #[error("the stored data is not readable: {0}")]
     Corrupt(String),
+}
+
+/// Something that can make a noise when a task's daily timer runs out.
+pub trait Alarm: Send + Sync {
+    fn sound(&self);
 }
 
 /// Somewhere a [`Snapshot`] can be kept.

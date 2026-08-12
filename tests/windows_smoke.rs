@@ -15,16 +15,20 @@ fn at(day: u32, hour: u32) -> DateTime<Local> {
         .expect("valid local time")
 }
 
+/// A tracker with one open and one finished task, dated relative to the real clock: the
+/// revive window only lists the last 30 days, so fixed dates would age out and turn the
+/// tests red on their own.
 fn populated() -> Tracker {
-    let mut tracker = Tracker::new(at(10, 9));
-    let first = tracker.push_new_task(at(10, 9));
+    let start = Local::now() - chrono::TimeDelta::hours(6);
+    let mut tracker = Tracker::new(start);
+    let first = tracker.push_new_task(start);
     tracker.rename(first, "write the report").expect("rename");
-    let second = tracker.push_new_task(at(10, 11));
+    let second = tracker.push_new_task(start + chrono::TimeDelta::hours(2));
     tracker
         .rename(second, "review the pull request")
         .expect("rename");
-    tracker.finish_focused(at(10, 12));
-    tracker.accrue(at(10, 15));
+    tracker.finish_focused(start + chrono::TimeDelta::hours(3));
+    tracker.accrue(start + chrono::TimeDelta::hours(4));
     tracker
 }
 
@@ -171,4 +175,79 @@ fn renaming_the_focused_task_commits_on_enter() {
     harness.key_press(egui::Key::Enter);
     harness.run();
     assert!(!harness.state().is_renaming());
+}
+
+/// An alarm that only records that it went off.
+#[derive(Clone, Default)]
+struct SilentAlarm(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl wiptracker::domain::ports::Alarm for SilentAlarm {
+    fn sound(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn the_timer_window_sets_a_task_and_the_default() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().timer = true;
+    harness.run();
+
+    // Open the picker for the default row, then choose one hour.
+    harness
+        .get_by_label_contains("default for new tasks")
+        .click_accesskit();
+    harness.run();
+    harness.get_by_label("1h").click_accesskit();
+    harness.run();
+
+    assert_eq!(
+        harness.state().tracker().default_timer(),
+        std::time::Duration::from_secs(3600)
+    );
+
+    // A task created afterwards inherits it. The click has to go through AccessKit: with
+    // the timer window open, a pointer click would land in the wrong viewport.
+    harness.get_by_label("new task").click_accesskit();
+    harness.run();
+    let focused = harness.state().tracker().focused_id();
+    assert_eq!(
+        harness
+            .state()
+            .tracker()
+            .task(focused)
+            .map(|task| task.timer),
+        Some(std::time::Duration::from_secs(3600))
+    );
+}
+
+#[test]
+fn a_reached_timer_sounds_the_alarm_once() {
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut tracker = Tracker::new(at(10, 9));
+    let id = tracker.push_new_task(at(10, 9));
+    tracker
+        .set_timer(id, std::time::Duration::from_secs(1))
+        .expect("set timer");
+    // Already over the limit, so the very next frame is due.
+    tracker.accrue(at(10, 10));
+
+    // The harness draws one frame while it is being built, so the alarm has to be in
+    // place before that: an alarm installed afterwards would miss the first firing.
+    let alarm = SilentAlarm(counter.clone());
+    let mut harness = Harness::builder()
+        .with_size(theme::BAR_SIZE)
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, tracker);
+            app.set_alarm(Box::new(alarm));
+            app
+        });
+    harness.run();
+    harness.run();
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(harness.state().alarms_sounded(), [id]);
 }
