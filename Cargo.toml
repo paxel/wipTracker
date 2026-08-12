@@ -1,0 +1,31 @@
+[package]
+name = "wiptracker"
+version = "0.1.0"
+edition = "2024"
+description = "A one-line always-on-top bar showing the task you are focused on right now"
+repository = "https://github.com/paxel/wipTracker"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["productivity", "time-tracking", "egui", "desktop"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+eframe = "0.35"
+egui = "0.35"
+redb = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies.tempfile]
+version = "3"
+
+[dev-dependencies]
+egui_kittest = { version = "0.35", features = ["wgpu", "eframe"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
