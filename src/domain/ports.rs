@@ -21,6 +21,10 @@ pub struct Snapshot {
     /// The daily timer new tasks start with. Zero means no alarm.
     #[serde(default)]
     pub default_timer: std::time::Duration,
+    /// When time was last credited, so a short gap while the app was closed can be
+    /// recovered on the next start. `None` before the first save.
+    #[serde(default)]
+    pub last_seen: Option<chrono::DateTime<chrono::Local>>,
     pub show_duration: bool,
     /// Whether the window wears its window manager's frame. `None` means the user has not
     /// chosen, so the platform default applies.

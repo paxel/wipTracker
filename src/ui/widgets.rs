@@ -8,6 +8,32 @@ use egui::{Color32, Response, Sense, Stroke, Ui};
 
 use crate::theme;
 
+/// Text size for tooltips: the default body size is hard to read on a bar this small.
+const TOOLTIP_TEXT_SIZE: f32 = 15.0;
+/// Distance between a widget and its tooltip, enough to clear the pointer.
+const TOOLTIP_GAP: f32 = 14.0;
+/// Width the tooltip may grow to before it wraps.
+const TOOLTIP_WIDTH: f32 = 320.0;
+
+/// Shows `text` when `response` is hovered.
+///
+/// Anchored to the widget rather than following the pointer, and kept a gap away from it,
+/// so the tooltip never opens under the mouse where the cursor covers the first words.
+pub fn tooltip(response: Response, text: impl Into<String>) -> Response {
+    let text = text.into();
+    egui::Tooltip::for_enabled(&response)
+        .gap(TOOLTIP_GAP)
+        .show(|ui| {
+            ui.set_max_width(TOOLTIP_WIDTH);
+            ui.label(
+                egui::RichText::new(text)
+                    .size(TOOLTIP_TEXT_SIZE)
+                    .color(theme::TEXT),
+            );
+        });
+    response
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Plus,

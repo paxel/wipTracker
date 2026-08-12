@@ -251,3 +251,55 @@ fn a_reached_timer_sounds_the_alarm_once() {
     assert_eq!(counter.load(std::sync::atomic::Ordering::Relaxed), 1);
     assert_eq!(harness.state().alarms_sounded(), [id]);
 }
+
+#[test]
+fn the_day_window_exports_json_to_the_clipboard() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().end_day = true;
+    harness.run();
+
+    harness.get_by_label("export").click_accesskit();
+    // A single frame, not `run()`: `run()` keeps stepping until the ui settles, and the
+    // clipboard command belongs to the one frame that handled the click.
+    harness.step();
+
+    // The clipboard command really was emitted — the confirmation label alone would still
+    // appear if the copy silently went nowhere, which is the one failure that matters for
+    // a feature whose whole contract is "it is on your clipboard".
+    let copied: Vec<String> = harness
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        copied.iter().any(|text| text.contains("\"seconds\"")),
+        "the export button should put the JSON on the clipboard, got {copied:?}"
+    );
+
+    // The confirmation appears next to the button.
+    assert!(
+        harness
+            .query_all_by_label_contains("copied to clipboard")
+            .count()
+            > 0,
+        "the export button should confirm that it copied"
+    );
+
+    // And the payload is the flat row shape, straight from the domain.
+    let today = Local::now().date_naive();
+    let json = wiptracker::domain::export::to_json(harness.state().tracker(), &[today]);
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json).expect("valid json");
+    assert!(!rows.is_empty(), "today has tracked time");
+    for row in &rows {
+        assert!(row.get("date").is_some());
+        assert!(row.get("task").is_some());
+        assert!(row["seconds"].is_u64());
+    }
+}

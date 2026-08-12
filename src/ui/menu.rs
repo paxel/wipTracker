@@ -144,19 +144,20 @@ pub fn show(
             )
             .show(ctx, |ui| {
                 ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
-                    for (label, picked, enabled, tooltip, closes) in entries {
+                    for (label, picked, enabled, hint, closes) in entries {
                         let color = if enabled {
                             theme::TEXT
                         } else {
                             theme::TEXT_DIM
                         };
-                        let clicked = ui
-                            .add_enabled(
+                        let clicked = crate::ui::widgets::tooltip(
+                            ui.add_enabled(
                                 enabled,
                                 egui::Button::new(RichText::new(label).color(color)),
-                            )
-                            .on_hover_text(tooltip)
-                            .clicked();
+                            ),
+                            hint,
+                        )
+                        .clicked();
                         if clicked {
                             action = picked;
                             keep_open = !closes;

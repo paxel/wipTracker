@@ -1,7 +1,7 @@
 # Release on tag: `git tag v0.1.0 && git push --tags` produces everything.
 #
 #   gate          — the full Linux gate once more (fmt, clippy, all tests)
-#   build-linux   — binary tar.gz
+#   build-linux   — tar.gz (binary, icon, .desktop, install script) and a .deb
 #   build-windows — zip with wiptracker.exe
 #   build-macos   — per-arch binary tar.gz (what Homebrew installs) plus one universal
 #                   unsigned WipTracker.app in a .dmg (what people download by hand)
@@ -70,16 +70,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev pkg-config \
+            libasound2-dev pkg-config dpkg-dev \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
       - name: Build release binary
         run: cargo build --release
-      - name: Binary tarball
+      - name: Tarball with the desktop files
+        # The icon, the .desktop entry and the install script travel with the binary:
+        # Wayland shows no icon without them, and Homebrew on Linux installs this tarball.
         run: |
           ver=${RELEASE_TAG#v}
-          mkdir -p dist
-          tar -C target/release -czf "dist/wiptracker-${ver}-linux-x86_64.tar.gz" wiptracker
+          mkdir -p dist stage
+          cp target/release/wiptracker stage/
+          cp assets/icon.png packaging/wiptracker.desktop packaging/install-icon.sh stage/
+          cp README.md LICENSE-MIT LICENSE-APACHE stage/
+          tar -C stage -czf "dist/wiptracker-${ver}-linux-x86_64.tar.gz" .
+      - name: Debian package
+        run: packaging/mkdeb.sh --no-build --version "${RELEASE_TAG#v}" --out dist
       - uses: actions/upload-artifact@v4
         with:
           name: linux

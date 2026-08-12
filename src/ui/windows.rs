@@ -3,12 +3,13 @@
 //! Each is a normal decorated window of its own, so it can be moved, resized and closed
 //! like any other; the bar keeps working while they are open.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use chrono::{DateTime, Datelike as _, Days, Local, NaiveDate};
 use egui::{Context, RichText, ViewportBuilder, ViewportId};
 
+use crate::domain::export;
 use crate::domain::task::TaskId;
 use crate::domain::tracker::Tracker;
 use crate::theme;
@@ -34,15 +35,23 @@ pub struct OpenWindows {
     /// Which row of the timer window has its duration picker open. `None` is the default
     /// timer's row.
     timer_editing: Option<Option<TaskId>>,
+    /// Whether each window is showing its "copied to clipboard" confirmation.
+    end_day_copied: bool,
+    week_copied: bool,
+    /// Where each window was placed when it opened. Recomputing this every frame would
+    /// re-issue `with_position`, which drags an open report window along with the bar.
+    placed: BTreeMap<&'static str, egui::Pos2>,
 }
 
 /// What the windows did this frame.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct WindowOutcome {
     /// Something changed that is worth storing.
     pub changed: bool,
     /// The user closed the day, which ends the session.
     pub day_closed: bool,
+    /// JSON the user asked to have on the clipboard.
+    pub copy: Option<String>,
 }
 
 /// Draws every open window.
@@ -63,11 +72,13 @@ pub fn show_all(
         outcome.changed |= groom(ctx, open, tracker, now);
     }
     if open.end_day {
-        outcome.day_closed = end_day(ctx, open, tracker, now);
-        outcome.changed |= outcome.day_closed;
+        let (day_closed, copy) = end_day(ctx, open, tracker, now);
+        outcome.day_closed = day_closed;
+        outcome.changed |= day_closed;
+        outcome.copy = outcome.copy.or(copy);
     }
     if open.week {
-        week(ctx, open, tracker, now);
+        outcome.copy = outcome.copy.or(week(ctx, open, tracker, now));
     }
     if open.revive {
         outcome.changed |= revive(ctx, open, tracker, now);
@@ -75,18 +86,83 @@ pub fn show_all(
     outcome
 }
 
+/// An "export" button that yields `days` as JSON, plus the confirmation that it worked.
+/// The flag lives in the caller so the message survives a repaint.
+///
+/// The JSON is handed back rather than copied here: this runs inside an immediate
+/// viewport, whose output never reaches the platform, so a `copy_text` call from this
+/// context would light up the label without touching the clipboard. The root context does
+/// the copying.
+fn export_button(
+    ui: &mut egui::Ui,
+    tracker: &Tracker,
+    days: &[NaiveDate],
+    copied: &mut bool,
+    payload: &mut Option<String>,
+) {
+    ui.horizontal(|ui| {
+        if ui
+            .button("export")
+            .on_hover_text("Copy this data as JSON, one row per task per day")
+            .clicked()
+        {
+            *payload = Some(export::to_json(tracker, days));
+            *copied = true;
+        }
+        if *copied {
+            ui.label(
+                RichText::new("copied to clipboard")
+                    .color(theme::TEXT_DIM)
+                    .small(),
+            );
+        }
+    });
+}
+
+/// Where a report window should open.
+///
+/// Without a position the window manager decides, and it parks every window in the
+/// top-left corner. Near the bar is the useful answer when the bar's own position is
+/// known; centred on the screen is the fallback. On Wayland neither is possible — a client
+/// there can neither read nor set a window position — so the compositor keeps deciding.
+fn placement(ctx: &Context, size: [f32; 2]) -> Option<egui::Pos2> {
+    let bar = ctx.input(|i| i.viewport().outer_rect);
+    if let Some(bar) = bar {
+        // Below the bar, left edges aligned, nudged left if that would run off the screen.
+        let x = bar.min.x;
+        let y = bar.max.y + 8.0;
+        return Some(egui::pos2(x, y));
+    }
+    let monitor = ctx.input(|i| i.viewport().monitor_size)?;
+    Some(egui::pos2(
+        (monitor.x - size[0]).max(0.0) / 2.0,
+        (monitor.y - size[1]).max(0.0) / 2.0,
+    ))
+}
+
 fn window(
     ctx: &Context,
-    id: &str,
+    id: &'static str,
     title: &str,
     size: [f32; 2],
+    placed: &mut BTreeMap<&'static str, egui::Pos2>,
     open: &mut bool,
     contents: impl FnOnce(&mut egui::Ui),
 ) {
-    let builder = ViewportBuilder::default()
+    let mut builder = ViewportBuilder::default()
         .with_title(title)
         .with_inner_size(size)
         .with_min_inner_size([320.0, 200.0]);
+    // Decided once, when the window opens: the bar can be dragged afterwards, and a fresh
+    // position on every frame would drag the report window along with it.
+    let position = placed.get(id).copied().or_else(|| {
+        placement(ctx, size).inspect(|position| {
+            placed.insert(id, *position);
+        })
+    });
+    if let Some(position) = position {
+        builder = builder.with_position(position);
+    }
 
     let mut contents = Some(contents);
     ctx.show_viewport_immediate(ViewportId::from_hash_of(id), builder, |ctx, _class| {
@@ -101,6 +177,11 @@ fn window(
             *open = false;
         }
     });
+
+    if !*open {
+        // Reopening should place it again rather than restore wherever it last sat.
+        placed.remove(id);
+    }
 }
 
 /// The task stack: the focused task on top, every other open task under it, the pause
@@ -111,6 +192,7 @@ fn stack(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
+    let mut placed = std::mem::take(&mut open.placed);
     let today = now.date_naive();
     let focused = tracker.focused_id();
     let rows: Vec<(TaskId, String, Duration, Duration)> = tracker
@@ -134,6 +216,7 @@ fn stack(
         "stack",
         "WipTracker — task stack",
         [420.0, 320.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.heading("Task stack");
@@ -179,6 +262,7 @@ fn stack(
         },
     );
 
+    open.placed = placed;
     open.stack = still_open;
     if let Some(id) = pick {
         let _ = tracker.select(id, now);
@@ -190,6 +274,7 @@ fn stack(
 
 /// The timer window: one row per open task plus the default that new tasks inherit.
 fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
+    let mut placed = std::mem::take(&mut open.placed);
     let default_timer = tracker.default_timer();
     let rows: Vec<(Option<TaskId>, String, Duration)> =
         std::iter::once((None, "default for new tasks".to_owned(), default_timer))
@@ -210,6 +295,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
         "timer",
         "WipTracker — timers",
         [420.0, 340.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.heading("Daily timers");
@@ -264,6 +350,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
         },
     );
 
+    open.placed = placed;
     open.timer = still_open;
     open.timer_editing = editing;
     if let Some((id, duration)) = chosen {
@@ -285,6 +372,7 @@ fn groom(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
+    let mut placed = std::mem::take(&mut open.placed);
     let mut finish_now = false;
     let mut still_open = true;
     let tasks: Vec<(TaskId, String, Duration)> = tracker
@@ -300,6 +388,7 @@ fn groom(
         "groom",
         "WipTracker — groom",
         [420.0, 320.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.heading("Open tasks");
@@ -335,6 +424,7 @@ fn groom(
         },
     );
 
+    open.placed = placed;
     open.groom = still_open;
     if finish_now {
         let ids: Vec<TaskId> = open.groom_selection.iter().copied().collect();
@@ -345,12 +435,14 @@ fn groom(
     false
 }
 
+/// Returns whether the day was closed, and any JSON the user asked to copy.
 fn end_day(
     ctx: &Context,
     open: &mut OpenWindows,
     tracker: &mut Tracker,
     now: DateTime<Local>,
-) -> bool {
+) -> (bool, Option<String>) {
+    let mut placed = std::mem::take(&mut open.placed);
     let today = now.date_naive();
     let record = tracker.day(today).cloned().unwrap_or_default();
     let rows: Vec<(String, Duration)> = tracker
@@ -360,12 +452,15 @@ fn end_day(
         .collect();
     let mut close_day = false;
     let mut still_open = true;
+    let mut copied = open.end_day_copied;
+    let mut payload = None;
 
     window(
         ctx,
         "end_day",
         "WipTracker — end day",
         [460.0, 360.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.heading(format!("{today}"));
@@ -405,6 +500,8 @@ fn end_day(
             }
 
             ui.add_space(8.0);
+            export_button(ui, tracker, &[today], &mut copied, &mut payload);
+            ui.add_space(8.0);
             if ui.button("Close day").clicked() {
                 close_day = true;
             }
@@ -419,15 +516,24 @@ fn end_day(
         },
     );
 
+    open.placed = placed;
     open.end_day = still_open;
+    open.end_day_copied = copied && still_open;
     if close_day {
         tracker.close_day(now);
-        return true;
+        return (true, payload);
     }
-    false
+    (false, payload)
 }
 
-fn week(ctx: &Context, open: &mut OpenWindows, tracker: &Tracker, now: DateTime<Local>) {
+/// Returns any JSON the user asked to copy.
+fn week(
+    ctx: &Context,
+    open: &mut OpenWindows,
+    tracker: &Tracker,
+    now: DateTime<Local>,
+) -> Option<String> {
+    let mut placed = std::mem::take(&mut open.placed);
     let anchor = open.week_anchor.unwrap_or_else(|| now.date_naive());
     let monday = monday_of(anchor);
     let days: Vec<NaiveDate> = (0..7)
@@ -457,12 +563,16 @@ fn week(ctx: &Context, open: &mut OpenWindows, tracker: &Tracker, now: DateTime<
     let mut anchor_change: Option<NaiveDate> = None;
     let mut still_open = true;
     let mut typed = open.week_input.clone();
+    let mut copied = open.week_copied;
+    let mut payload = None;
+    let week_days = days.clone();
 
     window(
         ctx,
         "week",
         "WipTracker — week",
         [720.0, 400.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.horizontal(|ui| {
@@ -504,6 +614,7 @@ fn week(ctx: &Context, open: &mut OpenWindows, tracker: &Tracker, now: DateTime<
                     );
                 }
             });
+            export_button(ui, tracker, &week_days, &mut copied, &mut payload);
             ui.separator();
 
             if task_rows.is_empty() {
@@ -550,11 +661,14 @@ fn week(ctx: &Context, open: &mut OpenWindows, tracker: &Tracker, now: DateTime<
         },
     );
 
+    open.placed = placed;
     open.week = still_open;
     open.week_input = typed;
+    open.week_copied = copied && still_open;
     if let Some(new_anchor) = anchor_change {
         open.week_anchor = Some(new_anchor);
     }
+    payload
 }
 
 fn revive(
@@ -563,6 +677,7 @@ fn revive(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
+    let mut placed = std::mem::take(&mut open.placed);
     let finished: Vec<(TaskId, String, Duration, String)> = tracker
         .recently_finished(REVIVE_DAYS, now)
         .iter()
@@ -586,6 +701,7 @@ fn revive(
         "revive",
         "WipTracker — revive",
         [460.0, 340.0],
+        &mut placed,
         &mut still_open,
         |ui| {
             ui.heading("Finished tasks");
@@ -620,6 +736,7 @@ fn revive(
         },
     );
 
+    open.placed = placed;
     open.revive = still_open;
     if let Some(id) = revive_id {
         let _ = tracker.revive(id, now);

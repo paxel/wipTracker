@@ -1,12 +1,11 @@
 //! The always-on-top one-line bar.
 
 use egui::{
-    Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui, Vec2,
-    ViewportCommand,
+    Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui, ViewportCommand,
 };
 
 use crate::theme;
-use crate::ui::widgets::{Icon, grip, icon_button};
+use crate::ui::widgets::{Icon, grip, icon_button, tooltip};
 
 /// What the user asked for by interacting with the bar this frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -39,27 +38,18 @@ pub struct Clock<'a> {
     pub over_limit: bool,
 }
 
-/// Moves the window while `response` is dragged.
+/// Hands the drag to the window manager, which then owns it completely.
 ///
-/// The first choice is the window manager's own move gesture, which snaps and behaves like
-/// dragging any other window. Some environments ignore that request and keep sending drag
-/// events instead; when that happens the window is moved by hand, which needs a known
-/// window position and so does not work on Wayland.
+/// Only the native gesture: an earlier version also moved the window by hand on every
+/// frame the response reported a drag, as a fallback for desktops that ignore the gesture.
+/// That made the bar stick to the pointer — once the window manager takes a pointer grab,
+/// the button release never reaches egui, so the response keeps reporting a drag and the
+/// manual path keeps moving the window until the next click. Desktops that ignore the
+/// gesture are Wayland compositors, and those already get a window frame by default, which
+/// is how the bar is dragged there.
 fn drag_window(ui: &Ui, response: &Response) {
     if response.drag_started() {
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-        return;
-    }
-    if !response.dragged() {
-        return;
-    }
-    let delta = response.drag_delta();
-    if delta == Vec2::ZERO {
-        return;
-    }
-    if let Some(rect) = ui.ctx().input(|i| i.viewport().outer_rect) {
-        ui.ctx()
-            .send_viewport_cmd(ViewportCommand::OuterPosition(rect.min + delta));
     }
 }
 
@@ -129,7 +119,7 @@ fn show_inner(
                 (width - theme::GRIP_WIDTH - clock_width - 2.0 * theme::BUTTON_SIZE.x - 6.0)
                     .max(0.0);
 
-            let handle = grip(ui).on_hover_text(GRIP_TOOLTIP);
+            let handle = tooltip(grip(ui), GRIP_TOOLTIP);
             drag_window(ui, &handle);
 
             ui.allocate_ui_with_layout(
@@ -139,14 +129,15 @@ fn show_inner(
                     if let Some(editor) = editor {
                         editor(ui);
                     } else if let Some(name) = name {
-                        let response = ui
-                            .add(
+                        let response = tooltip(
+                            ui.add(
                                 Label::new(RichText::new(name).color(theme::TEXT))
                                     .truncate()
                                     .selectable(false)
                                     .sense(Sense::click_and_drag()),
-                            )
-                            .on_hover_text(format!("{name}\n\n{NAME_TOOLTIP}"));
+                            ),
+                            format!("{name}\n\n{NAME_TOOLTIP}"),
+                        );
                         drag_window(ui, &response);
                         if response.clicked() {
                             action = BarAction::StartRename;
@@ -158,13 +149,10 @@ fn show_inner(
             );
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if icon_button(ui, Icon::Burger)
-                    .on_hover_text(MENU_TOOLTIP)
-                    .clicked()
-                {
+                if tooltip(icon_button(ui, Icon::Burger), MENU_TOOLTIP).clicked() {
                     action = BarAction::ToggleMenu;
                 }
-                let plus = icon_button(ui, Icon::Plus).on_hover_text(PLUS_TOOLTIP);
+                let plus = tooltip(icon_button(ui, Icon::Plus), PLUS_TOOLTIP);
                 if plus.clicked() {
                     action = BarAction::AddTask;
                 } else if plus.secondary_clicked() {
@@ -179,11 +167,13 @@ fn show_inner(
                     } else {
                         theme::TEXT_DIM
                     };
-                    ui.add(
-                        Label::new(RichText::new(clock.today).color(color).monospace())
-                            .selectable(false),
-                    )
-                    .on_hover_text(clock.tooltip);
+                    tooltip(
+                        ui.add(
+                            Label::new(RichText::new(clock.today).color(color).monospace())
+                                .selectable(false),
+                        ),
+                        clock.tooltip,
+                    );
                 }
             });
         },

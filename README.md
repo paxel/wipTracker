@@ -26,10 +26,18 @@ Every control says the same on hover, so the table is a reminder, not something 
 Download the archive for your platform from the
 [latest release](https://github.com/paxel/wipTracker/releases/latest).
 
-**Linux** — unpack and run the binary:
+**Linux** — install the `.deb`, which also registers the icon and the desktop entry:
+
+```sh
+sudo dpkg -i wiptracker_*_amd64.deb
+```
+
+Or unpack the tarball and register the desktop files yourself — without them Wayland shows
+no taskbar icon:
 
 ```sh
 tar -xzf wiptracker-*-linux-x86_64.tar.gz
+./install-icon.sh
 ./wiptracker
 ```
 
@@ -103,14 +111,18 @@ total keeps counting from where it left off. Older tasks are not deleted — the
 cluttering this list, and still appear in the week overview. The entry is greyed out when
 there is nothing to revive, and the window closes itself once the last one is back.
 
+**Export the numbers.** The end-day and week windows have an _export_ button that copies
+the data to the clipboard as JSON — one row per task per day, `{ "date", "task",
+"seconds" }`, the same shape from both windows. `pause` and finished tasks are included;
+filter downstream if you are booking billable time.
+
 **The clock shows today.** The number on the bar is the time spent on this task *today*,
 which is what the timers and the end-day report count. Hover it for the all-time total, or
 open the task stack, which lists both. Menu → _hide duration_ leaves just the task name.
 
 **Move the bar.** Drag the dotted handle at the left edge — or the task name, or anywhere
-else that is not a button. The position
-is remembered. WipTracker first asks the window manager for its own move gesture and falls
-back to moving the window itself.
+else that is not a button. The position is remembered. The move is handed to the window
+manager, so it snaps and behaves like dragging any other window.
 
 **Can't move it?** Menu → _show window frame_ gives the window its normal title bar, which
 every environment knows how to drag. **The change applies at the next start** — a frame
@@ -134,6 +146,9 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 
 ## Known limitations
 
+- **Wayland ignores the icon set by the app**, so the taskbar icon comes from the
+  installed `wiptracker.desktop` — use the `.deb` or run `install-icon.sh` from the
+  tarball. Windows and macOS need neither.
 - **Wayland ignores always-on-top.** There is no Wayland protocol for it, so the bar
   behaves like a normal window on GNOME, KDE and friends. Use the compositor's own window
   rule (KDE: _Special Window Settings → Keep above other windows_) or run under XWayland.
@@ -143,8 +158,9 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 - **The macOS build is unsigned.** See the `xattr` step above.
 - **Only one instance at a time.** The database is locked while WipTracker runs; a second
   instance reports the lock in the bar instead of starting.
-- **The clock stops with the app.** Time while WipTracker is not running is never counted,
-  even if a task was focused when you quit.
+- **The clock stops with the app**, except for short gaps: reopening within four hours on
+  the same day credits the time in between to the task that was focused, so an accidental
+  close costs nothing. A longer absence, or one crossing midnight, is never counted.
 - **A window position on a monitor that no longer exists is ignored** at startup, and the
   bar opens near the top of the current screen instead. WipTracker only sees the size of
   the monitor it is on, so a window that is merely half off-screen is left alone.

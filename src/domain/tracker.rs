@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Local, NaiveDate, TimeZone as _};
+use chrono::{DateTime, Local, NaiveDate, TimeDelta, TimeZone as _};
 
 use crate::domain::day::DayRecord;
 use crate::domain::ports::Snapshot;
@@ -57,9 +57,29 @@ impl Tracker {
         }
     }
 
+    /// How long a gap while the app was closed may be and still count.
+    ///
+    /// Closing the app by mistake and reopening it shortly after should not cost the time
+    /// in between; a genuinely long absence should not be credited to a task nobody was
+    /// working on.
+    pub const RECOVERABLE_GAP: TimeDelta = TimeDelta::hours(4);
+
     /// Rebuilds a tracker from stored parts. Anything inconsistent is repaired rather
     /// than rejected, so a half-written stack cannot lock the user out of their history.
+    ///
+    /// A short gap since the stored `last_seen` is credited to the task that was focused
+    /// when the app closed: under [`Self::RECOVERABLE_GAP`], and only within the same
+    /// calendar day, so nothing is ever credited across a night.
     pub fn from_snapshot(snapshot: &Snapshot, now: DateTime<Local>) -> Self {
+        let resume_from = snapshot
+            .last_seen
+            .filter(|last| {
+                *last <= now
+                    && now - *last <= Self::RECOVERABLE_GAP
+                    && last.date_naive() == now.date_naive()
+            })
+            .unwrap_or(now);
+
         let mut tracker = Self {
             next_id: snapshot.tasks.keys().copied().max().unwrap_or(PAUSE_ID) + 1,
             tasks: snapshot.tasks.clone(),
@@ -67,7 +87,7 @@ impl Tracker {
             history: snapshot.history.clone(),
             next_number: snapshot.next_number.max(1),
             default_timer: snapshot.default_timer,
-            active_since: now,
+            active_since: resume_from,
         };
         tracker
             .tasks
@@ -97,6 +117,7 @@ impl Tracker {
             history: self.history.clone(),
             next_number: self.next_number,
             default_timer: self.default_timer,
+            last_seen: Some(self.active_since),
             show_duration,
             decorated,
             window_pos,
@@ -702,6 +723,7 @@ mod tests {
             history: BTreeMap::new(),
             next_number: 9,
             default_timer: Duration::ZERO,
+            last_seen: None,
             show_duration: true,
             decorated: None,
             window_pos: None,
@@ -710,6 +732,61 @@ mod tests {
         assert_eq!(tracker.stack_bottom_first(), [PAUSE_ID, 8]);
         assert_eq!(tracker.focused_id(), 8);
         assert_eq!(tracker.next_task_number(), 9);
+    }
+
+    #[test]
+    fn a_short_gap_while_the_app_was_closed_is_credited() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        let snapshot = tracker.snapshot(true, None, None);
+
+        // Reopened an hour later on the same day: the hour counts.
+        let resumed = Tracker::from_snapshot(&snapshot, at(1, 11));
+        let mut resumed = resumed;
+        resumed.accrue(at(1, 11));
+        assert_eq!(resumed.task(task).map(|t| t.total), Some(hours(2)));
+    }
+
+    #[test]
+    fn a_long_gap_is_not_credited() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        let snapshot = tracker.snapshot(true, None, None);
+
+        // Five hours later is past the threshold: only the first hour survives.
+        let mut resumed = Tracker::from_snapshot(&snapshot, at(1, 15));
+        resumed.accrue(at(1, 15));
+        assert_eq!(resumed.task(task).map(|t| t.total), Some(hours(1)));
+    }
+
+    #[test]
+    fn a_gap_across_midnight_is_not_credited() {
+        let mut tracker = Tracker::new(at(1, 23));
+        let task = tracker.push_new_task(at(1, 23));
+        tracker.accrue(at(1, 23) + TimeDelta::minutes(30));
+        let snapshot = tracker.snapshot(true, None, None);
+
+        // Two hours later, but on the next day: nothing is recovered.
+        let mut resumed = Tracker::from_snapshot(&snapshot, at(2, 1));
+        resumed.accrue(at(2, 1));
+        assert_eq!(
+            resumed.task(task).map(|t| t.total),
+            Some(Duration::from_secs(1800))
+        );
+    }
+
+    #[test]
+    fn a_recovered_gap_goes_to_whatever_was_focused_including_pause() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        tracker.select(PAUSE_ID, at(1, 10)).expect("select pause");
+        let snapshot = tracker.snapshot(true, None, None);
+
+        let mut resumed = Tracker::from_snapshot(&snapshot, at(1, 11));
+        resumed.accrue(at(1, 11));
+        assert_eq!(resumed.task(PAUSE_ID).map(|t| t.total), Some(hours(1)));
     }
 
     #[test]

@@ -2,6 +2,38 @@
 
 All notable changes to WipTracker are documented in this file.
 
+## [0.3.0]
+
+### Added
+
+- **JSON export.** The end-day and week windows have an _export_ button that copies the
+  data to the clipboard as a flat array of rows — `{ "date", "task", "seconds" }`, one per
+  task per day, identical for both windows — so another tool can book time from it.
+  Nothing is filtered: `pause` and finished tasks are rows like any other.
+- **Linux desktop integration.** A `.deb` installs the binary, the icon and
+  `wiptracker.desktop`; the tarball carries the same files plus `install-icon.sh` for
+  everyone else. This is what makes a taskbar icon appear on Wayland, where a client
+  cannot set its own window icon and the compositor matches the window's app id to a
+  desktop entry instead.
+- **A short gap while the app was closed is credited to the task that was focused.** Under
+  four hours, and only within the same calendar day, so an accidental close no longer
+  costs the work in between. Longer absences and anything crossing midnight are still
+  never counted.
+
+### Changed
+
+- **Tooltips are anchored to the control they describe**, a gap away from it, and larger.
+  They used to open under the mouse pointer, which covered the first words.
+- **The report windows open near the bar**, or centred on the screen when the bar's
+  position is unknown, instead of being left in the top-left corner.
+
+### Fixed
+
+- **Dragging the bar no longer leaves it stuck to the pointer.** The window was moved by
+  two mechanisms at once: the window manager's own gesture, plus a per-frame fallback. Once
+  the window manager takes a pointer grab the button release never reaches the app, so the
+  fallback kept moving the window until the next click. Only the native gesture remains.
+
 ## [0.2.0]
 
 ### Added

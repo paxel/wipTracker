@@ -477,6 +477,11 @@ impl eframe::App for WipTracker {
         if outcome.changed {
             self.dirty = true;
         }
+        // Copying from the root context, not from inside the report window: an immediate
+        // viewport's output never reaches the platform, so the clipboard would stay empty.
+        if let Some(json) = outcome.copy {
+            ctx.copy_text(json);
+        }
 
         self.maybe_save();
 

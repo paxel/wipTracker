@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=WipTracker
+GenericName=Focus Tracker
+Comment=The task you are focused on right now, in a one-line bar
+Exec=wiptracker
+Icon=wiptracker
+Terminal=false
+Categories=Utility;Office;ProjectManagement;
+# Wayland/KDE matches the running window's app_id (set via with_app_id("wiptracker"))
+# to this file for the taskbar/titlebar icon; keep both equal to "wiptracker".
+StartupWMClass=wiptracker
