@@ -39,17 +39,42 @@ pub const BACKEND_OVERRIDE: &str = "WIPTRACKER_BACKEND";
 pub fn choose_backend() -> Backend {
     backend_for(
         std::env::var_os("WAYLAND_DISPLAY").is_some(),
-        std::env::var_os("DISPLAY").is_some(),
+        x11_is_reachable(),
         std::env::var(BACKEND_OVERRIDE).ok().as_deref(),
     )
 }
 
+/// Whether there is an X server behind `DISPLAY` that will actually answer.
+///
+/// A `DISPLAY` left over from an X server that has gone is common enough — exported in a
+/// shell profile, inherited from a dead session — and winit cannot recover from being
+/// pointed at one: asking for X11 and failing ends the process, and a second event loop
+/// cannot be built to try the other backend afterwards. So the socket is opened before the
+/// choice is made rather than after.
+///
+/// A display on another host is taken at its word; only the local socket is cheap enough
+/// to test.
+fn x11_is_reachable() -> bool {
+    let Some(display) = std::env::var_os("DISPLAY") else {
+        return false;
+    };
+    let display = display.to_string_lossy().into_owned();
+    let Some((host, rest)) = display.split_once(':') else {
+        return false;
+    };
+    if !host.is_empty() && host != "unix" {
+        return true;
+    }
+    let number = rest.split('.').next().unwrap_or_default();
+    std::os::unix::net::UnixStream::connect(format!("/tmp/.X11-unix/X{number}")).is_ok()
+}
+
 /// The rule behind [`choose_backend`], kept apart from the environment so it can be tested.
-fn backend_for(wayland: bool, x11: bool, forced: Option<&str>) -> Backend {
+fn backend_for(wayland: bool, x11_reachable: bool, forced: Option<&str>) -> Backend {
     match forced {
         Some("wayland") => Backend::Wayland,
         Some("x11") => Backend::X11,
-        _ if wayland && !x11 => Backend::Wayland,
+        _ if wayland && !x11_reachable => Backend::Wayland,
         _ => Backend::X11,
     }
 }
@@ -63,7 +88,13 @@ pub const WAYLAND_NOTICE: &str = "Wayland cannot keep a window above the others,
 /// A frameless window has to be placed and moved by the app, which is exactly what native
 /// Wayland refuses to do. Everywhere else, including under XWayland, the bar is frameless.
 pub fn prefers_decorations() -> bool {
-    choose_backend() == Backend::Wayland
+    prefers_decorations_on(choose_backend())
+}
+
+/// [`prefers_decorations`] for a backend that has already been chosen, which the startup
+/// path needs: it may have to try one backend and then the other.
+pub fn prefers_decorations_on(backend: Backend) -> bool {
+    backend == Backend::Wayland
 }
 
 /// Pins the dark look, whatever the desktop's own theme is.
@@ -625,16 +656,19 @@ impl eframe::App for WipTracker {
 mod tests {
     use super::*;
 
-    /// XWayland is what makes always-on-top work again, so it wins whenever it is there.
+    /// XWayland is what makes always-on-top work again, so it wins whenever it answers.
     #[test]
     fn a_wayland_session_with_xwayland_uses_x11() {
         assert_eq!(backend_for(true, true, None), Backend::X11);
     }
 
+    /// A `DISPLAY` that nothing answers on counts as no X11 at all: asking winit for it
+    /// would end the process rather than degrade.
     #[test]
     fn a_wayland_session_without_xwayland_has_no_choice() {
         assert_eq!(backend_for(true, false, None), Backend::Wayland);
-        assert!(prefers_decorations_for(Backend::Wayland));
+        assert!(prefers_decorations_on(Backend::Wayland));
+        assert!(!prefers_decorations_on(Backend::X11));
     }
 
     #[test]
@@ -648,11 +682,5 @@ mod tests {
         assert_eq!(backend_for(true, false, Some("x11")), Backend::X11);
         // Anything else is ignored rather than refused.
         assert_eq!(backend_for(true, true, Some("nonsense")), Backend::X11);
-    }
-
-    /// Only the native Wayland path needs the window frame; under XWayland the bar can be
-    /// placed and moved like anywhere else.
-    fn prefers_decorations_for(backend: Backend) -> bool {
-        backend == Backend::Wayland
     }
 }

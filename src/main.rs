@@ -113,7 +113,11 @@ fn main() -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
-    ask_for_backend(&mut options, backend);
+    // Only worth asking for on a Wayland session. Everywhere else winit's own choice is
+    // already the right one, and forcing a backend can only go wrong.
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        ask_for_backend(&mut options, backend);
+    }
 
     eframe::run_native(
         "WipTracker",
