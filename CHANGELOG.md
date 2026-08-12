@@ -10,9 +10,10 @@ All notable changes to WipTracker are documented in this file.
   data to the clipboard as a flat array of rows — `{ "date", "task", "seconds" }`, one per
   task per day, identical for both windows — so another tool can book time from it.
   Nothing is filtered: `pause` and finished tasks are rows like any other.
-- **Linux desktop integration.** A `.deb` installs the binary, the icon and
-  `wiptracker.desktop`; the tarball carries the same files plus `install-icon.sh` for
-  everyone else. This is what makes a taskbar icon appear on Wayland, where a client
+- **Linux desktop integration.** `brew install paxel/tap/wiptracker` works on Linux as
+  well as macOS and now installs the desktop entry and icon along with the binary. A `.deb`
+  does the same for Debian-based systems, and the tarball carries the files plus
+  `install-icon.sh` for everyone else. This is what makes a taskbar icon appear on Wayland, where a client
   cannot set its own window icon and the compositor matches the window's app id to a
   desktop entry instead.
 - **A short gap while the app was closed is credited to the task that was focused.** Under

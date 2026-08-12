@@ -26,7 +26,8 @@ Every control says the same on hover, so the table is a reminder, not something 
 Download the archive for your platform from the
 [latest release](https://github.com/paxel/wipTracker/releases/latest).
 
-**Linux** — install the `.deb`, which also registers the icon and the desktop entry:
+**Linux** — `brew install paxel/tap/wiptracker` works here too and needs nothing further.
+Otherwise install the `.deb`, which registers the icon and the desktop entry:
 
 ```sh
 sudo dpkg -i wiptracker_*_amd64.deb
@@ -52,10 +53,17 @@ signed with an Apple Developer certificate, so Gatekeeper will refuse it on firs
 xattr -cr /Applications/WipTracker.app
 ```
 
-Or use the package managers — each release pushes a formula and a manifest:
+Or use a package manager — each release pushes a formula and a manifest.
+
+**Homebrew**, on macOS *and* Linux, which also installs the desktop entry and icon:
 
 ```sh
 brew install paxel/tap/wiptracker
+```
+
+**Scoop**, on Windows:
+
+```sh
 scoop bucket add paxel https://github.com/paxel/scoop-bucket
 scoop install wiptracker
 ```

@@ -25,17 +25,25 @@ class Wiptracker < Formula
 
   def install
     bin.install "wiptracker"
+    # On Linux the desktop entry and the icon are what give the window a taskbar icon:
+    # Wayland has no protocol for a client to set its own, so the compositor matches the
+    # window's app_id to wiptracker.desktop instead. Homebrew's share directory is on
+    # XDG_DATA_DIRS, so installing them here is enough.
+    return unless OS.linux?
+
+    (share/"applications").install "wiptracker.desktop"
+    (share/"icons/hicolor/512x512/apps").install "icon.png" => "wiptracker.png"
   end
 
   def caveats
     <<~EOS
       WipTracker is a desktop bar, not a command-line tool: run `wiptracker` from a
-      graphical session. The release also ships WipTracker.app for the Dock; download it
-      from the GitHub release page if you prefer that.
+      graphical session. The macOS release also ships WipTracker.app for the Dock;
+      download the .dmg from the GitHub release page if you prefer that.
 
-      On Wayland the bar cannot stay on top and is started with a window frame, because
-      no Wayland protocol exists for either. Use your compositor's own "keep above"
-      window rule.
+      On Wayland the bar cannot stay on top and starts with a window frame, because no
+      Wayland protocol exists for either. Use your compositor's own "keep above" window
+      rule. The taskbar icon is installed with this formula.
     EOS
   end
 
