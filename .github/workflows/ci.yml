@@ -1,9 +1,12 @@
 name: CI
 
 on:
-  # Every branch, not just main: the work happens on topic branches and the gate is
-  # only useful if it runs where the commits land.
+  # Every branch, not just main: the work happens on topic branches, and the gate is only
+  # useful if it runs where the commits land. Tags are excluded — the release workflow
+  # runs the same fmt/clippy/test gate before it builds anything, so a tag would otherwise
+  # pay for it twice.
   push:
+    tags-ignore: ["**"]
   pull_request:
 
 env:

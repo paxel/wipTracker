@@ -15,9 +15,17 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # A manual re-run for a tag that already exists — the way back when a release job fails
+  # for a reason that has since been fixed, without moving or burning a tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.2.0)"
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   gate:
@@ -25,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -40,7 +50,7 @@ jobs:
       - name: Tag matches the crate version
         run: |
           ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
-          tag=${GITHUB_REF_NAME#v}
+          tag=${RELEASE_TAG#v}
           [ "$ver" = "$tag" ] || { echo "tag v$tag != crate version $ver" >&2; exit 1; }
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
@@ -52,6 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: System dependencies
@@ -65,7 +77,7 @@ jobs:
         run: cargo build --release
       - name: Binary tarball
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           mkdir -p dist
           tar -C target/release -czf "dist/wiptracker-${ver}-linux-x86_64.tar.gz" wiptracker
       - uses: actions/upload-artifact@v4
@@ -79,6 +91,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build release binary
@@ -86,7 +100,7 @@ jobs:
       - name: Zip
         shell: pwsh
         run: |
-          $ver = $env:GITHUB_REF_NAME.TrimStart("v")
+          $ver = $env:RELEASE_TAG.TrimStart("v")
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path target/release/wiptracker.exe, `
                                  LICENSE-MIT, `
@@ -103,6 +117,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Both Apple targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -113,7 +129,7 @@ jobs:
           cargo build --release --target x86_64-apple-darwin
       - name: Per-architecture tarballs (Homebrew installs these)
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           mkdir -p dist
           tar -C target/aarch64-apple-darwin/release \
             -czf "dist/wiptracker-${ver}-macos-arm64.tar.gz" wiptracker
@@ -121,7 +137,7 @@ jobs:
             -czf "dist/wiptracker-${ver}-macos-x86_64.tar.gz" wiptracker
       - name: Universal app bundle in a dmg (for hand-downloads)
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           mkdir -p build
           lipo -create -output build/wiptracker \
             target/aarch64-apple-darwin/release/wiptracker \
@@ -141,27 +157,33 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Release notes from the CHANGELOG section
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           awk -v ver="$ver" '
             $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
             grab && (/^## \[/ || /^---/) { exit }
             grab { print }
           ' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "Release $ver." > notes.md
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "WipTracker $GITHUB_REF_NAME" \
-            --notes-file notes.md \
-            dist/*
+      # softprops updates an existing release rather than failing on it: publishing from
+      # the GitHub UI creates the tag, which starts this workflow, so the release usually
+      # exists before the artifacts are built. The body always comes from CHANGELOG.md, so
+      # the release notes and the file cannot drift apart.
+      - name: Create or update the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: WipTracker ${{ env.RELEASE_TAG }}
+          body_path: notes.md
+          files: dist/*
+          fail_on_unmatched_files: true
 
   channels:
     name: Homebrew tap + Scoop bucket
@@ -169,13 +191,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Render formula and manifest from the templates
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           sha() { sha256sum "dist/$1" | cut -d' ' -f1; }
           mkdir -p out
           sed -e "s/{{VERSION}}/$ver/g" \
@@ -190,7 +214,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CHANNEL_PAT }}
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           git config --global user.name "wiptracker-release-bot"
           git config --global user.email "taum@tuta.io"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/paxel/homebrew-tap.git" tap
@@ -203,7 +227,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CHANNEL_PAT }}
         run: |
-          ver=${GITHUB_REF_NAME#v}
+          ver=${RELEASE_TAG#v}
           git clone "https://x-access-token:${GH_TOKEN}@github.com/paxel/scoop-bucket.git" bucket
           mkdir -p bucket/bucket
           cp out/wiptracker.json bucket/bucket/wiptracker.json
