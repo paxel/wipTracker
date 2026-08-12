@@ -219,6 +219,14 @@ The UI tests drive the real app headlessly through `egui_kittest` — clicking b
 opening the windows, checking the state that comes out — and write PNGs to
 `target/render/`, so layout and contrast can be checked without a desktop session.
 
+Two things cannot be tested that way: the hint window and the menu's placement. Both are
+windows of their own, and `egui_kittest` embeds viewports instead of creating windows, so
+the app skips them there rather than drawing them over the bar. Checking them means a real
+session — start the binary with `XDG_DATA_HOME` pointed somewhere scratch, warp the pointer
+onto a control with X11's `XWarpPointer` (giving the root window as the destination, or the
+coordinates are read as a relative move), and photograph the screen with `import -window
+root`.
+
 Regenerate the screenshot in this README with:
 
 ```sh
