@@ -54,3 +54,23 @@ pub const HOLD_FILL: Color32 = Color32::from_rgb(0x46, 0x59, 0x7A);
 pub const HOLD_FILL_OVER: Color32 = Color32::from_rgba_premultiplied(0x23, 0x2C, 0x3D, 0x80);
 /// Tints the part of the hold indicator that has not been reached yet.
 pub const HOLD_DIM: Color32 = Color32::from_rgb(0x50, 0x58, 0x66);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bar is exactly its parts, with and without the grip. The name column is sized
+    /// from the same sum, so a mismatch would let the name overlap the buttons.
+    #[test]
+    fn the_bar_is_the_sum_of_its_parts() {
+        for decorated in [false, true] {
+            let expected = grip_width(decorated)
+                + LABEL_WIDTH
+                + CLOCK_WIDTH
+                + BUTTON_COUNT * BUTTON_SIZE.x
+                + 2.0 * BAR_MARGIN;
+            assert_eq!(bar_size(decorated).x, expected);
+        }
+        assert_eq!(bar_size(true).x, bar_size(false).x - GRIP_WIDTH);
+    }
+}

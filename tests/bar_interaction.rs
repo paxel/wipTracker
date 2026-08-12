@@ -353,6 +353,21 @@ fn a_rename_typed_into_the_bar_is_committed() {
     assert_eq!(harness.state().tracker().focused_name(), "book the trip");
 }
 
+/// Hiding the clock widens the name column, and the buttons have to keep their places.
+#[test]
+fn the_buttons_still_work_without_the_clock() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.state_mut().set_show_duration(false);
+    settle(&mut harness);
+
+    hold(&mut harness, button_center(2.0), HOLD_QUICK);
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+}
+
 #[test]
 fn holding_the_burger_opens_the_timer() {
     let mut harness = harness(Tracker::new(at(9)));

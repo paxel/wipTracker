@@ -150,8 +150,9 @@ manager, so it snaps and behaves like dragging any other window.
 every environment knows how to drag. **The change applies at the next start** — a frame
 added to a running window is drawn over the bar rather than around it, so WipTracker only
 stores the preference and says so. _hide window frame_ takes it away again. On Wayland the
-frame is on by default, because Wayland compositors often ignore the move gesture and never
-report a window position for the fallback to use; X11, macOS and Windows start frameless.
+frame is on by default, because a window there can be neither placed nor kept above the
+others, so the title bar is the one thing that reliably works; X11, macOS and Windows start
+frameless.
 
 ## Data
 
