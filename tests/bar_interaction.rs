@@ -291,6 +291,57 @@ fn letting_go_of_the_name_early_renames_instead() {
     );
 }
 
+/// The whole name column is the target, not just the pixels the text happens to cover.
+#[test]
+fn the_name_can_be_held_beside_a_short_name() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "mail").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+
+    let beside = egui::pos2(
+        theme::BAR_MARGIN + theme::grip_width(prefers_decorations()) + 120.0,
+        theme::BAR_HEIGHT / 2.0,
+    );
+    hold(&mut harness, beside, HOLD_FINISH);
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+}
+
+/// The rename editor shares the pointer machinery that the holds changed, so it is worth
+/// driving end to end rather than only rendering it.
+#[test]
+fn a_rename_typed_into_the_bar_is_committed() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+
+    hold(&mut harness, name_center(), 0.0);
+    harness.run();
+    assert!(harness.state().is_renaming());
+
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text("book the trip".to_owned()));
+    harness.step();
+    harness.input_mut().events.push(egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    harness.run();
+
+    assert!(!harness.state().is_renaming());
+    assert_eq!(harness.state().tracker().focused_name(), "book the trip");
+}
+
 #[test]
 fn holding_the_burger_opens_the_timer() {
     let mut harness = harness(Tracker::new(at(9)));

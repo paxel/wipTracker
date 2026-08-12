@@ -167,10 +167,25 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 - **Wayland ignores the icon set by the app**, so the taskbar icon comes from the
   installed `wiptracker.desktop` — use the `.deb` or run `install-icon.sh` from the
   tarball. Windows and macOS need neither.
-- **Wayland ignores always-on-top.** There is no Wayland protocol for it, so the bar
-  behaves like a normal window on GNOME, KDE and friends. Use the compositor's own window
-  rule (KDE: _Special Window Settings → Keep above other windows_) or run under XWayland.
-  Windows, macOS and X11 work as expected.
+- **Wayland ignores always-on-top.** No client can ask for it: the protocol that would
+  allow it, `wlr-layer-shell`, is not part of upstream `wayland-protocols` and is not
+  implemented by the windowing library underneath WipTracker either, so the bar behaves
+  like a normal window on every Wayland compositor. Windows, macOS and X11 work as
+  expected.
+
+  On KDE the compositor can be told instead. Right-click the bar's title bar (or
+  <kbd>Alt</kbd>+<kbd>F3</kbd>) → _More Actions_ → _Configure Special Window Settings_,
+  then:
+
+  | Field        | Value                      |
+  | ------------ | -------------------------- |
+  | Window class | `wiptracker` (exact match) |
+  | Add Property | _Keep above other windows_ |
+  | Setting      | _Force_ · _Yes_            |
+
+  Other compositors have their own equivalent — sway `for_window [app_id="wiptracker"]`,
+  Hyprland a `windowrule`. Or run under XWayland, where always-on-top works as it does on
+  X11.
 - **Wayland also often ignores the move gesture**, which is why the window frame is on by
   default there; see _Can't move it?_ above.
 - **The macOS build is unsigned.** See the `xattr` step above.

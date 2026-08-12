@@ -120,8 +120,12 @@ fn action_of(press: Press, click: BarAction, hold: BarAction) -> Option<BarActio
 /// rectangle takes the pointer for itself, and the hold then never starts. That leaves the
 /// sweep to be painted over the text rather than under it, which is what
 /// [`theme::HOLD_FILL_OVER`] is for.
-fn show_name(ui: &mut Ui, name: &str) -> Option<BarAction> {
-    let response = ui.add(
+fn show_name(ui: &mut Ui, name: &str, width: f32) -> Option<BarAction> {
+    // Sized to the whole name column rather than to the text: a short name would otherwise
+    // leave most of the column dead, and "hold the task name" has to mean the part of the
+    // bar that looks like the task name.
+    let response = ui.add_sized(
+        egui::vec2(width, theme::BUTTON_SIZE.y),
         Label::new(RichText::new(name).color(theme::TEXT))
             .truncate()
             .selectable(false)
@@ -183,7 +187,7 @@ fn show_inner(
                     if let Some(editor) = editor {
                         editor(ui);
                     } else if let Some(name) = name
-                        && let Some(asked) = show_name(ui, name)
+                        && let Some(asked) = show_name(ui, name, label_width)
                     {
                         action = asked;
                     }

@@ -81,7 +81,13 @@ pub struct Press {
 pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Press {
     let key = response.id.with("press");
     let now = ui.input(|input| input.time);
-    let previous: Option<(f64, bool)> = ui.data(|data| data.get_temp(key));
+    // Started, whether the hold has already fired, and when this was last written. The
+    // last of those catches a widget that vanished mid-press — the bar swaps the name for
+    // the rename editor, for one — and left its state behind: without it, the next press
+    // on that id would start out already elapsed.
+    let previous: Option<(f64, bool, f64)> = ui
+        .data(|data| data.get_temp(key))
+        .filter(|(_, _, seen): &(f64, bool, f64)| now - seen < STALE_PRESS);
     let mut press = Press::default();
 
     // Deliberately the raw pointer position rather than `contains_pointer`: the widget's
@@ -93,7 +99,7 @@ pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Pres
         .is_some_and(|pos| response.rect.contains(pos));
 
     if response.is_pointer_button_down_on() && over {
-        let (started, mut fired) = previous.unwrap_or((now, false));
+        let (started, mut fired, _) = previous.unwrap_or((now, false, now));
         if armed {
             press.progress = (((now - started) as f32) / hold).clamp(0.0, 1.0);
             if press.progress >= 1.0 && !fired {
@@ -101,17 +107,21 @@ pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Pres
                 press.long_pressed = true;
             }
         }
-        ui.data_mut(|data| data.insert_temp(key, (started, fired)));
+        ui.data_mut(|data| data.insert_temp(key, (started, fired, now)));
         // The app asks for a repaint once a second, which is far too slow for a sweep.
         ui.ctx().request_repaint();
     } else {
         if previous.is_some() {
-            ui.data_mut(|data| data.remove::<(f64, bool)>(key));
+            ui.data_mut(|data| data.remove::<(f64, bool, f64)>(key));
         }
-        press.clicked = response.clicked() && !previous.is_some_and(|(_, fired)| fired);
+        press.clicked = response.clicked() && !previous.is_some_and(|(_, fired, _)| fired);
     }
     press
 }
+
+/// How long a press may go unwatched before it is treated as abandoned rather than live.
+/// Comfortably longer than a frame, including the coarse frames the tests step through.
+const STALE_PRESS: f64 = 1.0;
 
 /// The drag handle at the left edge of the bar: a column of dots, dragged to move the
 /// window. It exists so there is always somewhere unambiguous to grab, whatever else the
