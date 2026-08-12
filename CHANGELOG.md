@@ -57,10 +57,14 @@ All notable changes to WipTracker are documented in this file.
   in a white field even after the palette was pinned. Nothing about them reads the style
   any more, so nothing can override it. The palette itself is asserted by a test now, and
   the mac report is still open.
-- **WipTracker admits what Wayland cannot do.** Always-on-top is the point of the app and
-  Wayland has no protocol for it, which used to fail silently. It is now said once on
-  startup and stays at the bottom of the menu, with the compositor rules to use instead
-  written up in the README.
+- **The bar stays on top on Wayland again, by running under XWayland.** No Wayland client
+  can ask to stay above other windows, and the bar was silently behaving like an ordinary
+  window on every Wayland desktop — the one thing the app exists to do. It now asks for
+  the X11 backend, which every mainstream Wayland session provides through XWayland, and
+  window placement and the remembered position come back with it.
+  `WIPTRACKER_BACKEND=wayland` forces the native path for anyone who prefers it; there the
+  app says what it cannot do, once on startup and permanently at the bottom of the menu,
+  and the README carries the compositor rules to use instead.
 - **The menu opens where it fits.** It was always placed directly below the bar, so a bar
   near the bottom of the screen opened it past the edge. It now goes wherever it is fully
   visible, and scrolls if the screen is shorter than the list. Wayland is the exception:

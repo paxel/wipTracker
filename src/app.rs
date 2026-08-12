@@ -15,28 +15,55 @@ use crate::ui::hint;
 use crate::ui::menu::{self, MenuAction};
 use crate::ui::windows::{self, OpenWindows};
 
-/// Whether the app is talking to a Wayland compositor rather than to X11.
-///
-/// Three things the bar is built on are missing there, and none of them fail loudly:
-/// a window cannot be placed, cannot be kept above other windows, and there is no popup
-/// protocol for the menu. The library underneath implements none of them — `set_window_level`
-/// is an empty function on Wayland — so always-on-top, the point of the app, silently does
-/// nothing. The app says so rather than pretending.
-pub fn is_wayland() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("DISPLAY").is_none()
+/// Which windowing backend the app asks for on Linux.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Backend {
+    X11,
+    Wayland,
 }
 
-/// What to tell the user about the platform, if anything.
-pub const WAYLAND_NOTICE: &str = "Wayland cannot keep a window above the others. Use your compositor's own rule — see \
-     the README.";
+/// The environment variable that overrides the choice below, for anyone who would rather
+/// have the native path and can live without the bar staying on top.
+pub const BACKEND_OVERRIDE: &str = "WIPTRACKER_BACKEND";
+
+/// Which backend to ask for.
+///
+/// Three things this app is built on are missing on Wayland, and none of them fail loudly:
+/// a window cannot be placed, cannot be kept above other windows, and there is no popup
+/// protocol. The library underneath implements none of them — `set_window_level` is an
+/// empty function there — so always-on-top, the point of the app, silently does nothing.
+///
+/// winit picks Wayland whenever `WAYLAND_DISPLAY` is set, even when XWayland is running.
+/// Under XWayland all three work again, and nearly every Wayland desktop runs it, so that
+/// is what the app asks for. `WIPTRACKER_BACKEND=wayland` forces the native path anyway.
+pub fn choose_backend() -> Backend {
+    backend_for(
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        std::env::var_os("DISPLAY").is_some(),
+        std::env::var(BACKEND_OVERRIDE).ok().as_deref(),
+    )
+}
+
+/// The rule behind [`choose_backend`], kept apart from the environment so it can be tested.
+fn backend_for(wayland: bool, x11: bool, forced: Option<&str>) -> Backend {
+    match forced {
+        Some("wayland") => Backend::Wayland,
+        Some("x11") => Backend::X11,
+        _ if wayland && !x11 => Backend::Wayland,
+        _ => Backend::X11,
+    }
+}
+
+/// What to tell the user when the app really is running on Wayland.
+pub const WAYLAND_NOTICE: &str = "Wayland cannot keep a window above the others, and XWayland — which can — is not \
+     running. Use your compositor's own rule; see the README.";
 
 /// Whether this environment gets a window frame unless the user says otherwise.
 ///
-/// An undecorated window can only be moved if the environment honours the window
-/// manager's move gesture, and Wayland is also where the bar cannot be placed at all, so a
-/// frame is the safe default there. X11, macOS and Windows get the clean frameless bar.
+/// A frameless window has to be placed and moved by the app, which is exactly what native
+/// Wayland refuses to do. Everywhere else, including under XWayland, the bar is frameless.
 pub fn prefers_decorations() -> bool {
-    is_wayland()
+    choose_backend() == Backend::Wayland
 }
 
 /// Pins the dark look, whatever the desktop's own theme is.
@@ -471,7 +498,14 @@ impl eframe::App for WipTracker {
 
         // The desktop can switch to a light theme while the app runs, and egui follows it
         // by default, so the preference is re-asserted rather than set once at startup.
-        if ctx.options(|options| options.theme_preference) != egui::ThemePreference::Dark {
+        //
+        // The palette is checked as well as the preference. Something that replaces the
+        // style without touching the preference would leave the app light and the older
+        // guard would never have noticed — which is the shape of the mac report that has
+        // not been explained, so the app repairs itself instead of trusting one flag.
+        if ctx.options(|options| options.theme_preference) != egui::ThemePreference::Dark
+            || ctx.style_of(egui::Theme::Dark).visuals.extreme_bg_color != theme::FIELD
+        {
             install_theme(&ctx);
         }
 
@@ -544,7 +578,8 @@ impl eframe::App for WipTracker {
                     notice: self.notice.as_deref(),
                     bar: self.window_pos,
                     monitor,
-                    platform_notice: is_wayland().then_some(WAYLAND_NOTICE),
+                    platform_notice: (choose_backend() == Backend::Wayland)
+                        .then_some(WAYLAND_NOTICE),
                     was_focused: self.menu_was_focused,
                 },
             );
@@ -583,5 +618,41 @@ impl eframe::App for WipTracker {
     fn on_exit(&mut self) {
         self.dirty = true;
         self.maybe_save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// XWayland is what makes always-on-top work again, so it wins whenever it is there.
+    #[test]
+    fn a_wayland_session_with_xwayland_uses_x11() {
+        assert_eq!(backend_for(true, true, None), Backend::X11);
+    }
+
+    #[test]
+    fn a_wayland_session_without_xwayland_has_no_choice() {
+        assert_eq!(backend_for(true, false, None), Backend::Wayland);
+        assert!(prefers_decorations_for(Backend::Wayland));
+    }
+
+    #[test]
+    fn a_plain_x11_session_uses_x11() {
+        assert_eq!(backend_for(false, true, None), Backend::X11);
+    }
+
+    #[test]
+    fn the_override_wins_either_way() {
+        assert_eq!(backend_for(true, true, Some("wayland")), Backend::Wayland);
+        assert_eq!(backend_for(true, false, Some("x11")), Backend::X11);
+        // Anything else is ignored rather than refused.
+        assert_eq!(backend_for(true, true, Some("nonsense")), Backend::X11);
+    }
+
+    /// Only the native Wayland path needs the window frame; under XWayland the bar can be
+    /// placed and moved like anywhere else.
+    fn prefers_decorations_for(backend: Backend) -> bool {
+        backend == Backend::Wayland
     }
 }

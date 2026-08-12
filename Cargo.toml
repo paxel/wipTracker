@@ -19,6 +19,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+# Only to ask winit for a specific backend; the version follows eframe's own.
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.30", default-features = false }
+
 [dev-dependencies.tempfile]
 version = "3"
 

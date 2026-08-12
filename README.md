@@ -149,10 +149,10 @@ manager, so it snaps and behaves like dragging any other window.
 **Can't move it?** Menu → _show window frame_ gives the window its normal title bar, which
 every environment knows how to drag. **The change applies at the next start** — a frame
 added to a running window is drawn over the bar rather than around it, so WipTracker only
-stores the preference and says so. _hide window frame_ takes it away again. On Wayland the
-frame is on by default, because a window there can be neither placed nor kept above the
-others, so the title bar is the one thing that reliably works; X11, macOS and Windows start
-frameless.
+stores the preference and says so. _hide window frame_ takes it away again. The frame is on
+by default only on the native Wayland path, where a window can be neither placed nor kept
+above the others and the title bar is the one thing that reliably works; X11, XWayland,
+macOS and Windows start frameless.
 
 ## Data
 
@@ -172,15 +172,17 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 - **Wayland ignores the icon set by the app**, so the taskbar icon comes from the
   installed `wiptracker.desktop` — use the `.deb` or run `install-icon.sh` from the
   tarball. Windows and macOS need neither.
-- **Wayland ignores always-on-top.** WipTracker says so on startup and at the bottom of
-  the menu rather than leaving you to wonder why the bar keeps disappearing. No client can
-  ask for it: the protocol that would
-  allow it, `wlr-layer-shell`, is not part of upstream `wayland-protocols` and is not
-  implemented by the windowing library underneath WipTracker either, so the bar behaves
-  like a normal window on every Wayland compositor. Windows, macOS and X11 work as
-  expected.
+- **Wayland has no always-on-top, so WipTracker runs under XWayland.** No Wayland client
+  can ask to stay above other windows — the protocol that would allow it,
+  `wlr-layer-shell`, is not part of upstream `wayland-protocols` and is not implemented by
+  the windowing library underneath WipTracker either. Under XWayland all of it works
+  again, and every mainstream Wayland desktop runs XWayland, so that is what the bar asks
+  for. You do not have to do anything.
 
-  On KDE the compositor can be told instead. Right-click the bar's title bar (or
+  Set `WIPTRACKER_BACKEND=wayland` to force the native path anyway; `WIPTRACKER_BACKEND=x11`
+  is the default on a Wayland session and only worth naming to be explicit. On the native
+  path the bar behaves like an ordinary window — it says so on startup and in the menu —
+  and the way back is a compositor rule. On KDE: right-click the title bar (or
   <kbd>Alt</kbd>+<kbd>F3</kbd>) → _More Actions_ → _Configure Special Window Settings_,
   then:
 
@@ -190,11 +192,11 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
   | Add Property | _Keep above other windows_ |
   | Setting      | _Force_ · _Yes_            |
 
-  Other compositors have their own equivalent — sway `for_window [app_id="wiptracker"]`,
-  Hyprland a `windowrule`. Or run under XWayland, where always-on-top works as it does on
-  X11.
-- **Wayland also often ignores the move gesture**, which is why the window frame is on by
-  default there; see _Can't move it?_ above.
+  sway has `for_window [app_id="wiptracker"]`, Hyprland a `windowrule`.
+
+- **A native-Wayland window cannot be placed**, so the bar opens where the compositor puts
+  it, the menu and the hint open where the compositor puts them, and the remembered
+  position is ignored. Under XWayland — the default — none of that applies.
 - **The macOS build is unsigned.** See the `xattr` step above.
 - **Only one instance at a time.** The database is locked while WipTracker runs; a second
   instance reports the lock in the bar instead of starting.

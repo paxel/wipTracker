@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use wiptracker::app::{WAYLAND_NOTICE, WipTracker, is_wayland, prefers_decorations};
+use wiptracker::app::{Backend, WAYLAND_NOTICE, WipTracker, choose_backend, prefers_decorations};
 use wiptracker::domain::ports::Store as _;
 use wiptracker::infrastructure::redb_store::RedbStore;
 use wiptracker::theme;
@@ -29,6 +29,26 @@ fn icon() -> egui::IconData {
     }
 }
 
+/// Asks winit for a specific backend.
+///
+/// Without this it would pick Wayland whenever a Wayland session is running, even with
+/// XWayland available — and on Wayland the bar cannot be kept above other windows at all.
+#[cfg(target_os = "linux")]
+fn ask_for_backend(options: &mut eframe::NativeOptions, backend: Backend) {
+    use winit::platform::wayland::EventLoopBuilderExtWayland as _;
+    use winit::platform::x11::EventLoopBuilderExtX11 as _;
+
+    options.event_loop_builder = Some(Box::new(move |builder| {
+        match backend {
+            Backend::X11 => builder.with_x11(),
+            Backend::Wayland => builder.with_wayland(),
+        };
+    }));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ask_for_backend(_options: &mut eframe::NativeOptions, _backend: Backend) {}
+
 fn main() -> eframe::Result<()> {
     if let Some(argument) = std::env::args().nth(1) {
         match argument.as_str() {
@@ -50,7 +70,8 @@ fn main() -> eframe::Result<()> {
     // Said once at startup as well as in the menu: someone starting the app from a
     // terminal on Wayland should not have to wonder why the bar keeps disappearing behind
     // other windows.
-    if is_wayland() {
+    let backend = choose_backend();
+    if backend == Backend::Wayland {
         eprintln!("wiptracker: {WAYLAND_NOTICE}");
     }
 
@@ -88,10 +109,11 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_position(egui::pos2(x, y));
     }
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport,
         ..Default::default()
     };
+    ask_for_backend(&mut options, backend);
 
     eframe::run_native(
         "WipTracker",
