@@ -16,6 +16,11 @@ All notable changes to WipTracker are documented in this file.
   `install-icon.sh` for everyone else. This is what makes a taskbar icon appear on Wayland, where a client
   cannot set its own window icon and the compositor matches the window's app id to a
   desktop entry instead.
+- **A hint window beside the bar.** Hovering a control explains it, and holding one shows
+  the reading cat filling up as the hold runs. The bar's tooltips could never work: egui
+  keeps a tooltip inside the window it belongs to, and that window is 32 pixels tall, so
+  three lines of explanation were squeezed into a strip nothing could be read in. The hint
+  takes no focus, stays out of the taskbar and passes the mouse straight through.
 - **A short gap while the app was closed is credited to the task that was focused.** Under
   four hours, and only within the same calendar day, so an accidental close no longer
   costs the work in between. Longer absences and anything crossing midnight are still
@@ -47,6 +52,15 @@ All notable changes to WipTracker are documented in this file.
 
 ### Fixed
 
+- **The menu and the rename field paint their own colours.** Both used to take their
+  background from the theme, and a mac user saw white labels on white pills and white text
+  in a white field even after the palette was pinned. Nothing about them reads the style
+  any more, so nothing can override it. The palette itself is asserted by a test now, and
+  the mac report is still open.
+- **WipTracker admits what Wayland cannot do.** Always-on-top is the point of the app and
+  Wayland has no protocol for it, which used to fail silently. It is now said once on
+  startup and stays at the bottom of the menu, with the compositor rules to use instead
+  written up in the README.
 - **The menu opens where it fits.** It was always placed directly below the bar, so a bar
   near the bottom of the screen opened it past the edge. It now goes wherever it is fully
   visible, and scrolls if the screen is shorter than the list. Wayland is the exception:

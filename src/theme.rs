@@ -52,3 +52,5 @@ pub const BUTTON_ACTIVE: Color32 = Color32::from_rgb(0x3D, 0x4B, 0x66);
 pub const HOLD_FILL: Color32 = Color32::from_rgb(0x46, 0x59, 0x7A);
 /// The same sweep where it has to be painted over text rather than under it.
 pub const HOLD_FILL_OVER: Color32 = Color32::from_rgba_premultiplied(0x23, 0x2C, 0x3D, 0x80);
+/// Tints the part of the hold indicator that has not been reached yet.
+pub const HOLD_DIM: Color32 = Color32::from_rgb(0x50, 0x58, 0x66);

@@ -52,6 +52,17 @@ fn name_center() -> egui::Pos2 {
     )
 }
 
+/// Runs to a standstill with the pointer off the bar.
+///
+/// The hint window follows the pointer's hover, and an immediate viewport that appears and
+/// disappears keeps asking for another frame, so `run` never settles while the pointer is
+/// resting on a control. Taking the pointer away is what a person does anyway.
+fn settle(harness: &mut Harness<'_, WipTracker>) {
+    harness.step();
+    harness.input_mut().events.push(egui::Event::PointerGone);
+    harness.run();
+}
+
 fn pointer(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2, pressed: bool) {
     let events = &mut harness.input_mut().events;
     events.push(egui::Event::PointerMoved(pos));
@@ -84,11 +95,11 @@ fn clicking_plus_creates_and_focuses_a_task() {
     assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
 
     harness.get_by_label("new task").click();
-    harness.run();
+    settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "new task 1");
 
     harness.get_by_label("new task").click();
-    harness.run();
+    settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "new task 2");
 }
 
@@ -98,7 +109,7 @@ fn clicking_the_burger_opens_the_menu() {
     assert!(!harness.state().is_menu_open());
 
     harness.get_by_label("menu").click();
-    harness.run();
+    settle(&mut harness);
     assert!(harness.state().is_menu_open());
 }
 
@@ -106,14 +117,14 @@ fn clicking_the_burger_opens_the_menu() {
 fn the_burger_closes_the_menu_again() {
     let mut harness = harness(Tracker::new(at(9)));
     harness.get_by_label("menu").click();
-    harness.run();
+    settle(&mut harness);
     assert!(harness.state().is_menu_open());
 
     // Through the accessibility tree, not a pointer: the harness draws the menu window
     // over the bar instead of beside it, so a click at the burger's position would land
     // on the menu.
     harness.get_by_label("menu").click_accesskit();
-    harness.run();
+    settle(&mut harness);
     assert!(
         !harness.state().is_menu_open(),
         "the burger toggles the menu, it does not only open it"
@@ -128,7 +139,7 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
 
     let mut harness = harness(tracker);
     harness.state_mut().set_menu_open(true);
-    harness.run();
+    settle(&mut harness);
 
     for label in [
         "new task",
@@ -155,12 +166,12 @@ fn the_window_frame_can_be_toggled_from_the_menu() {
     let mut harness = harness(Tracker::new(at(9)));
     let before = harness.state().is_decorated();
     harness.state_mut().set_menu_open(true);
-    harness.run();
+    settle(&mut harness);
 
     harness
         .get_by_label_contains("window frame")
         .click_accesskit();
-    harness.run();
+    settle(&mut harness);
 
     assert_eq!(harness.state().is_decorated(), !before);
     assert!(
@@ -178,13 +189,13 @@ fn picking_a_task_from_the_stack_window_focuses_it() {
 
     let mut harness = harness(tracker);
     harness.state_mut().windows_mut().stack = true;
-    harness.run();
+    settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "new task 2");
 
     harness
         .get_by_label_contains("write the report")
         .click_accesskit();
-    harness.run();
+    settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
     assert!(
         !harness.state().windows().stack,
@@ -196,21 +207,21 @@ fn picking_a_task_from_the_stack_window_focuses_it() {
 fn the_select_entry_opens_the_stack_window() {
     let mut harness = harness(Tracker::new(at(9)));
     harness.state_mut().set_menu_open(true);
-    harness.run();
+    settle(&mut harness);
 
     harness.get_by_label_contains("select").click_accesskit();
-    harness.run();
+    settle(&mut harness);
     assert!(harness.state().windows().stack);
 }
 
 #[test]
 fn a_new_task_opens_its_name_for_editing() {
     let mut harness = harness(Tracker::new(at(9)));
-    harness.run();
+    settle(&mut harness);
     assert!(!harness.state().is_renaming());
 
     harness.get_by_label("new task").click();
-    harness.run();
+    settle(&mut harness);
     assert!(
         harness.state().is_renaming(),
         "the placeholder name should be ready to be typed over"
@@ -220,11 +231,11 @@ fn a_new_task_opens_its_name_for_editing() {
 #[test]
 fn clicking_the_fork_opens_the_stack_window() {
     let mut harness = harness(Tracker::new(at(9)));
-    harness.run();
+    settle(&mut harness);
     assert!(!harness.state().windows().stack);
 
     harness.get_by_label("task stack").click();
-    harness.run();
+    settle(&mut harness);
     assert!(harness.state().windows().stack);
 }
 
@@ -235,7 +246,7 @@ fn holding_the_fork_takes_a_break() {
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
-    harness.run();
+    settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
 
     hold(&mut harness, button_center(2.0), HOLD_QUICK);
@@ -263,7 +274,7 @@ fn holding_the_name_finishes_the_task() {
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
-    harness.run();
+    settle(&mut harness);
 
     hold(&mut harness, name_center(), HOLD_FINISH);
     assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
@@ -280,7 +291,7 @@ fn letting_go_of_the_name_early_renames_instead() {
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
-    harness.run();
+    settle(&mut harness);
 
     // Well past egui's own click limit, but short of the finish hold: still a click.
     hold(&mut harness, name_center(), HOLD_FINISH - STEP * 2.0);
@@ -299,7 +310,7 @@ fn the_name_can_be_held_beside_a_short_name() {
     tracker.rename(id, "mail").expect("rename");
 
     let mut harness = harness(tracker);
-    harness.run();
+    settle(&mut harness);
 
     let beside = egui::pos2(
         theme::BAR_MARGIN + theme::grip_width(prefers_decorations()) + 120.0,
@@ -318,10 +329,10 @@ fn a_rename_typed_into_the_bar_is_committed() {
     tracker.rename(id, "write the report").expect("rename");
 
     let mut harness = harness(tracker);
-    harness.run();
+    settle(&mut harness);
 
     hold(&mut harness, name_center(), 0.0);
-    harness.run();
+    settle(&mut harness);
     assert!(harness.state().is_renaming());
 
     harness
@@ -336,7 +347,7 @@ fn a_rename_typed_into_the_bar_is_committed() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     });
-    harness.run();
+    settle(&mut harness);
 
     assert!(!harness.state().is_renaming());
     assert_eq!(harness.state().tracker().focused_name(), "book the trip");
@@ -345,7 +356,7 @@ fn a_rename_typed_into_the_bar_is_committed() {
 #[test]
 fn holding_the_burger_opens_the_timer() {
     let mut harness = harness(Tracker::new(at(9)));
-    harness.run();
+    settle(&mut harness);
 
     hold(&mut harness, button_center(0.0), HOLD_QUICK);
     assert!(harness.state().windows().timer);
@@ -358,7 +369,7 @@ fn holding_the_burger_opens_the_timer() {
 #[test]
 fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
     let mut empty = harness(Tracker::new(at(9)));
-    empty.run();
+    settle(&mut empty);
 
     hold(&mut empty, button_center(1.0), HOLD_QUICK);
     assert!(
@@ -372,7 +383,7 @@ fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
     tracker.finish_focused(at(10));
 
     let mut revivable = harness(tracker);
-    revivable.run();
+    settle(&mut revivable);
     hold(&mut revivable, button_center(1.0), HOLD_QUICK);
     assert!(revivable.state().windows().revive);
 }

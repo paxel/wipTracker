@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use wiptracker::app::{WipTracker, prefers_decorations};
+use wiptracker::app::{WAYLAND_NOTICE, WipTracker, is_wayland, prefers_decorations};
 use wiptracker::domain::ports::Store as _;
 use wiptracker::infrastructure::redb_store::RedbStore;
 use wiptracker::theme;
@@ -45,6 +45,13 @@ fn main() -> eframe::Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // Said once at startup as well as in the menu: someone starting the app from a
+    // terminal on Wayland should not have to wonder why the bar keeps disappearing behind
+    // other windows.
+    if is_wayland() {
+        eprintln!("wiptracker: {WAYLAND_NOTICE}");
     }
 
     // The store is opened before the window so the bar can be placed where it was last

@@ -14,6 +14,15 @@ fn at(hour: u32) -> DateTime<Local> {
         .expect("valid local time")
 }
 
+/// Today at `hour` o'clock, so a test that must stay on one calendar day can.
+fn today_at(hour: u32) -> DateTime<Local> {
+    Local::now()
+        .date_naive()
+        .and_hms_opt(hour, 0, 0)
+        .and_then(|naive| naive.and_local_timezone(Local).single())
+        .expect("valid local time")
+}
+
 fn harness(tracker: Tracker) -> Harness<'static, WipTracker> {
     Harness::builder()
         .with_size(theme::bar_size(prefers_decorations()))
@@ -45,7 +54,10 @@ fn bar_renders_focused_task_and_clock() {
 /// The bar's clock is today's time, and it turns amber once the daily timer is reached.
 #[test]
 fn the_clock_marks_a_task_that_is_over_its_timer() {
-    let start = Local::now();
+    // Nine o'clock today, not "now": an hour accrued from `now` late in the evening is
+    // split across midnight, and the bar's clock — which shows *today* — then reads a few
+    // minutes rather than the hour the timer is measured against.
+    let start = today_at(9);
     let mut tracker = Tracker::new(start);
     let id = tracker.push_new_task(start);
     tracker.rename(id, "write the report").expect("rename");
@@ -102,7 +114,8 @@ fn hovering_the_buttons_keeps_them_readable() {
         theme::bar_size(prefers_decorations()).x - 1.5 * theme::BUTTON_SIZE.x,
         theme::BAR_HEIGHT / 2.0,
     ));
-    harness.run();
+    // Stepped, not run: the hint window opens on hover and keeps asking for frames.
+    harness.run_steps(2);
     save(&mut harness, "bar_hover_plus");
 }
 
@@ -183,4 +196,34 @@ fn the_bar_stays_dark_on_a_light_desktop() {
         bright < 40,
         "the rename field should be dark, found {bright} near-white pixels"
     );
+}
+
+/// The two colours the mac report is about, asserted rather than eyeballed.
+///
+/// The menu rows and the rename field are painted with explicit colours now, so neither
+/// depends on these any more — but if the palette ever stops being installed, this is the
+/// first thing to fail and it names the reason.
+#[test]
+fn the_palette_survives_a_light_desktop() {
+    let mut harness = harness(Tracker::new(at(9)));
+    harness.ctx.set_theme(egui::ThemePreference::Light);
+    harness.run();
+
+    let visuals = harness.ctx.style_of(egui::Theme::Dark).visuals.clone();
+    {
+        assert_eq!(
+            visuals.extreme_bg_color,
+            theme::FIELD,
+            "the rename field's background comes from this"
+        );
+        assert_eq!(
+            visuals.widgets.inactive.weak_bg_fill,
+            theme::BUTTON_IDLE,
+            "a themed button's fill comes from this"
+        );
+        assert!(
+            visuals.override_text_color.is_none(),
+            "one forced text colour would override every per-state colour"
+        );
+    }
 }

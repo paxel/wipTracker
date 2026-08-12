@@ -3,7 +3,8 @@
 use egui::{Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui};
 
 use crate::theme;
-use crate::ui::widgets::{Icon, Press, grip, icon_button, sweep, tooltip, track_press};
+use crate::ui::hint::Hint;
+use crate::ui::widgets::{Icon, Press, grip, icon_button, sweep, track_press};
 
 /// What the user asked for by interacting with the bar this frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -84,7 +85,7 @@ pub fn show_with_editor(
     ui: &mut Ui,
     state: BarState<'_>,
     editor: impl FnOnce(&mut Ui),
-) -> BarAction {
+) -> BarOutcome {
     show_inner(ui, None, state, Some(editor))
 }
 
@@ -99,8 +100,17 @@ pub fn show_error(ui: &mut Ui, message: &str) {
     });
 }
 
-pub fn show(ui: &mut Ui, name: &str, state: BarState<'_>) -> BarAction {
+pub fn show(ui: &mut Ui, name: &str, state: BarState<'_>) -> BarOutcome {
     show_inner(ui, Some(name), state, None::<fn(&mut Ui)>)
+}
+
+/// What the bar produced this frame: what to do, and what to explain.
+#[derive(Default)]
+pub struct BarOutcome {
+    pub action: BarAction,
+    /// The hovered control's explanation, and how far a hold on it has come. `None` when
+    /// the pointer is not on the bar, which is when the hint window is not shown at all.
+    pub hint: Option<Hint>,
 }
 
 /// Turns what a press produced into the action it stands for.
@@ -114,13 +124,29 @@ fn action_of(press: Press, click: BarAction, hold: BarAction) -> Option<BarActio
     }
 }
 
+/// Records what to explain about the control the pointer is on.
+///
+/// A running hold always wins: the hint window is also the hold indicator, and the cat
+/// filling up matters more than the sentence next to it. Otherwise the first hovered
+/// control keeps the hint, so two overlapping hover rectangles cannot fight over it.
+fn note(hint: &mut Option<Hint>, response: &Response, press: Press, text: impl Into<String>) {
+    if press.progress > 0.0 {
+        *hint = Some(Hint {
+            text: text.into(),
+            progress: Some(press.progress),
+        });
+    } else if response.hovered() && hint.is_none() {
+        *hint = Some(Hint::text(text));
+    }
+}
+
 /// Draws the task name, and reports what holding or clicking it asked for.
 ///
 /// One widget, not a label stacked on an invisible button: a second widget over the same
 /// rectangle takes the pointer for itself, and the hold then never starts. That leaves the
 /// sweep to be painted over the text rather than under it, which is what
 /// [`theme::HOLD_FILL_OVER`] is for.
-fn show_name(ui: &mut Ui, name: &str, width: f32) -> Option<BarAction> {
+fn show_name(ui: &mut Ui, name: &str, width: f32, hint: &mut Option<Hint>) -> Option<BarAction> {
     // Sized to the whole name column rather than to the text: a short name would otherwise
     // leave most of the column dead, and "hold the task name" has to mean the part of the
     // bar that looks like the task name.
@@ -133,7 +159,7 @@ fn show_name(ui: &mut Ui, name: &str, width: f32) -> Option<BarAction> {
     );
     let press = track_press(ui, &response, HOLD_FINISH, true);
     sweep(ui, response.rect, press.progress, theme::HOLD_FILL_OVER);
-    tooltip(response, format!("{name}\n\n{NAME_TOOLTIP}"));
+    note(hint, &response, press, format!("{name}\n\n{NAME_TOOLTIP}"));
     action_of(press, BarAction::StartRename, BarAction::FinishTask)
 }
 
@@ -146,8 +172,9 @@ fn show_inner(
     name: Option<&str>,
     state: BarState<'_>,
     editor: Option<impl FnOnce(&mut Ui)>,
-) -> BarAction {
+) -> BarOutcome {
     let mut action = BarAction::None;
+    let mut hint = None;
 
     // The window has a fixed size, so the row does too: relying on the parent's available
     // space would make the layout depend on how the bar happens to be embedded.
@@ -176,7 +203,8 @@ fn show_inner(
             // a stray press on the background used to drag it, and the name cannot both be
             // dragged and held for two seconds.
             if !state.decorated {
-                let handle = tooltip(grip(ui), GRIP_TOOLTIP);
+                let handle = grip(ui);
+                note(&mut hint, &handle, Press::default(), GRIP_TOOLTIP);
                 drag_window(ui, &handle);
             }
 
@@ -187,7 +215,7 @@ fn show_inner(
                     if let Some(editor) = editor {
                         editor(ui);
                     } else if let Some(name) = name
-                        && let Some(asked) = show_name(ui, name, label_width)
+                        && let Some(asked) = show_name(ui, name, label_width, &mut hint)
                     {
                         action = asked;
                     }
@@ -196,7 +224,7 @@ fn show_inner(
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let (burger, press) = icon_button(ui, Icon::Burger, HOLD_QUICK, true);
-                tooltip(burger, MENU_TOOLTIP);
+                note(&mut hint, &burger, press, MENU_TOOLTIP);
                 if let Some(asked) = action_of(press, BarAction::ToggleMenu, BarAction::OpenTimer) {
                     action = asked;
                 }
@@ -204,13 +232,13 @@ fn show_inner(
                 // Nothing to revive means no sweep: a hold that fills up and then does
                 // nothing reads as a broken button.
                 let (plus, press) = icon_button(ui, Icon::Plus, HOLD_QUICK, state.can_revive);
-                tooltip(plus, PLUS_TOOLTIP);
+                note(&mut hint, &plus, press, PLUS_TOOLTIP);
                 if let Some(asked) = action_of(press, BarAction::AddTask, BarAction::OpenRevive) {
                     action = asked;
                 }
 
                 let (fork, press) = icon_button(ui, Icon::Fork, HOLD_QUICK, true);
-                tooltip(fork, FORK_TOOLTIP);
+                note(&mut hint, &fork, press, FORK_TOOLTIP);
                 if let Some(asked) =
                     action_of(press, BarAction::OpenStack, BarAction::SwitchToPause)
                 {
@@ -223,17 +251,15 @@ fn show_inner(
                     } else {
                         theme::TEXT_DIM
                     };
-                    tooltip(
-                        ui.add(
-                            Label::new(RichText::new(clock.today).color(color).monospace())
-                                .selectable(false),
-                        ),
-                        clock.tooltip,
+                    let response = ui.add(
+                        Label::new(RichText::new(clock.today).color(color).monospace())
+                            .selectable(false),
                     );
+                    note(&mut hint, &response, Press::default(), clock.tooltip);
                 }
             });
         },
     );
 
-    action
+    BarOutcome { action, hint }
 }

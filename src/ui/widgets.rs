@@ -220,6 +220,48 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response
     (response, press)
 }
 
+/// A full-width row in the menu, painted rather than themed.
+///
+/// A plain `Button` takes its fill from `visuals.widgets.*` and its text from the style
+/// unless the text carries its own colour. That is one system-theme quirk away from a
+/// white label on a white pill, which is what a mac user reported seeing. Nothing here
+/// reads the style, so nothing can override it.
+pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
+    let font = egui::FontId::proportional(14.0);
+    let size = egui::vec2(ui.available_width(), 22.0);
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(size, sense);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    let (fill, text) = if !enabled {
+        (Color32::TRANSPARENT, theme::TEXT_DIM)
+    } else if response.is_pointer_button_down_on() {
+        (theme::BUTTON_ACTIVE, theme::TEXT)
+    } else if response.hovered() {
+        (theme::BUTTON_HOVER, theme::TEXT)
+    } else {
+        (theme::BUTTON_IDLE, theme::TEXT)
+    };
+    if fill.a() > 0 {
+        ui.painter().rect_filled(rect, 4.0, fill);
+    }
+    ui.painter().text(
+        rect.left_center() + egui::vec2(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        label,
+        font,
+        text,
+    );
+    response
+}
+
 /// Fills `rect` from the left to show how far a hold has come.
 pub fn sweep(ui: &Ui, rect: egui::Rect, progress: f32, color: Color32) {
     if progress <= 0.0 {

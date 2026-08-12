@@ -25,6 +25,10 @@ touchscreen can reach everything. While you hold, the control fills up to show h
 hold has come; letting go early does the click instead. Every hold is also an entry in the
 menu, because a touchscreen never shows a tooltip.
 
+Hovering a control opens a small window beside the bar explaining it, and while you hold
+one that window shows the reading cat filling up. It has to be a window of its own: the bar
+is 32 pixels tall, and a tooltip cannot be drawn outside the window it belongs to.
+
 ## Install
 
 Download the archive for your platform from the
@@ -167,7 +171,9 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 - **Wayland ignores the icon set by the app**, so the taskbar icon comes from the
   installed `wiptracker.desktop` — use the `.deb` or run `install-icon.sh` from the
   tarball. Windows and macOS need neither.
-- **Wayland ignores always-on-top.** No client can ask for it: the protocol that would
+- **Wayland ignores always-on-top.** WipTracker says so on startup and at the bottom of
+  the menu rather than leaving you to wonder why the bar keeps disappearing. No client can
+  ask for it: the protocol that would
   allow it, `wlr-layer-shell`, is not part of upstream `wayland-protocols` and is not
   implemented by the windowing library underneath WipTracker either, so the bar behaves
   like a normal window on every Wayland compositor. Windows, macOS and X11 work as

@@ -10,6 +10,7 @@
 use egui::{Align, Context, Layout, RichText, ViewportBuilder, ViewportId};
 
 use crate::theme;
+use crate::ui::place;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MenuAction {
@@ -46,6 +47,9 @@ pub struct MenuContext<'a> {
     pub decorated: bool,
     /// A short message shown at the bottom, such as "restart to apply".
     pub notice: Option<&'a str>,
+    /// A standing message about the platform, shown under the notice. Unlike `notice` it
+    /// does not go away, because the shortcoming it describes does not either.
+    pub platform_notice: Option<&'a str>,
     /// Where the bar sits. Unknown on Wayland, where the compositor places windows.
     pub bar: Option<(f32, f32)>,
     /// How big the monitor the bar is on is, when the platform says.
@@ -186,7 +190,7 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
     ]
 }
 
-fn wanted_height(rows: &[Row], notice: bool) -> f32 {
+fn wanted_height(rows: &[Row], notices: usize) -> f32 {
     let content: f32 = rows
         .iter()
         .map(|row| match row {
@@ -194,38 +198,18 @@ fn wanted_height(rows: &[Row], notice: bool) -> f32 {
             Row::Item(_) => ROW_HEIGHT,
         })
         .sum();
-    content + PADDING + if notice { NOTICE_HEIGHT } else { 0.0 }
-}
-
-/// Where the menu goes, and how tall it may be.
-///
-/// The only rule is that the menu has to be fully visible. Below the bar is where it ends
-/// up most of the time, simply because that is usually where it fits; a bar near the
-/// bottom of the screen gets it above instead. Nothing here reaches the screen on Wayland,
-/// where `with_position` is a no-op and the compositor decides.
-fn place(bar: (f32, f32), monitor: Option<egui::Vec2>, wanted: f32) -> (egui::Pos2, f32) {
-    let (x, y) = bar;
-    let Some(monitor) = monitor else {
-        return (egui::pos2(x, y + theme::BAR_HEIGHT), wanted);
-    };
-    let height = wanted.min(monitor.y);
-    let below = y + theme::BAR_HEIGHT;
-    let top = if below + height <= monitor.y {
-        below
-    } else {
-        (y - height).max(0.0)
-    };
-    let left = x.min((monitor.x - MENU_WIDTH).max(0.0)).max(0.0);
-    (egui::pos2(left, top), height)
+    content + PADDING + notices as f32 * NOTICE_HEIGHT
 }
 
 /// Draws the menu window and reports what was picked.
 pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
     let rows = rows(context);
-    let wanted = wanted_height(&rows, context.notice.is_some());
+    let notices =
+        usize::from(context.notice.is_some()) + usize::from(context.platform_notice.is_some());
+    let wanted = wanted_height(&rows, notices);
     let (position, height) = match context.bar {
         Some(bar) => {
-            let (position, height) = place(bar, context.monitor, wanted);
+            let (position, height) = place::near_bar(bar, context.monitor, MENU_WIDTH, wanted);
             (Some(position), height)
         }
         None => (None, wanted),
@@ -265,17 +249,11 @@ pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
                                     ui.separator();
                                 }
                                 Row::Item(entry) => {
-                                    let color = if entry.enabled {
-                                        theme::TEXT
-                                    } else {
-                                        theme::TEXT_DIM
-                                    };
                                     let clicked = crate::ui::widgets::tooltip(
-                                        ui.add_enabled(
+                                        crate::ui::widgets::menu_row(
+                                            ui,
+                                            &entry.label,
                                             entry.enabled,
-                                            egui::Button::new(
-                                                RichText::new(&entry.label).color(color),
-                                            ),
                                         ),
                                         entry.hint,
                                     )
@@ -288,13 +266,14 @@ pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
                             }
                         }
 
-                        if let Some(notice) = context.notice {
-                            ui.add_space(6.0);
-                            ui.label(
-                                RichText::new(notice)
-                                    .color(egui::Color32::from_rgb(0xE0, 0xB0, 0x5A))
-                                    .small(),
-                            );
+                        for (notice, color) in [
+                            (context.notice, theme::OVER_LIMIT),
+                            (context.platform_notice, theme::TEXT_DIM),
+                        ] {
+                            if let Some(notice) = notice {
+                                ui.add_space(6.0);
+                                ui.label(RichText::new(notice).color(color).small());
+                            }
                         }
                     });
                 });

@@ -11,17 +11,32 @@ use crate::infrastructure::beeper::Beeper;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
 use crate::ui::format;
+use crate::ui::hint;
 use crate::ui::menu::{self, MenuAction};
 use crate::ui::windows::{self, OpenWindows};
+
+/// Whether the app is talking to a Wayland compositor rather than to X11.
+///
+/// Three things the bar is built on are missing there, and none of them fail loudly:
+/// a window cannot be placed, cannot be kept above other windows, and there is no popup
+/// protocol for the menu. The library underneath implements none of them — `set_window_level`
+/// is an empty function on Wayland — so always-on-top, the point of the app, silently does
+/// nothing. The app says so rather than pretending.
+pub fn is_wayland() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("DISPLAY").is_none()
+}
+
+/// What to tell the user about the platform, if anything.
+pub const WAYLAND_NOTICE: &str = "Wayland cannot keep a window above the others. Use your compositor's own rule — see \
+     the README.";
 
 /// Whether this environment gets a window frame unless the user says otherwise.
 ///
 /// An undecorated window can only be moved if the environment honours the window
-/// manager's move gesture. Wayland compositors frequently do not, and there is no way to
-/// move the window by hand there either, so a frame is the only way out. X11, macOS and
-/// Windows all behave, and get the clean frameless bar.
+/// manager's move gesture, and Wayland is also where the bar cannot be placed at all, so a
+/// frame is the safe default there. X11, macOS and Windows get the clean frameless bar.
 pub fn prefers_decorations() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("DISPLAY").is_none()
+    is_wayland()
 }
 
 /// Pins the dark look, whatever the desktop's own theme is.
@@ -405,9 +420,14 @@ impl WipTracker {
             return false;
         };
         let id = egui::Id::new("rename_editor");
+        // Both colours are named here rather than left to the theme. The field's
+        // background otherwise comes from `visuals.extreme_bg_color`, and a mac user saw
+        // white text in a white field — whatever reaches the style on that platform, an
+        // explicit colour cannot be overridden by it.
         let output = egui::TextEdit::singleline(&mut rename.text)
             .id(id)
             .text_color(theme::TEXT)
+            .background_color(theme::FIELD)
             .desired_width(theme::LABEL_WIDTH)
             .show(ui);
         let response = output.response;
@@ -488,23 +508,30 @@ impl eframe::App for WipTracker {
             can_revive,
         };
         let time = ctx.input(|input| input.time);
+        let monitor = ctx.input(|input| input.viewport().monitor_size);
 
-        let mut action = BarAction::None;
+        let mut outcome = bar::BarOutcome::default();
         let mut renaming = false;
         egui::CentralPanel::default()
             .frame(bar::frame())
             .show(ui, |ui| {
                 if self.rename.is_some() {
                     renaming = true;
-                    action = bar::show_with_editor(ui, state, |ui| {
+                    outcome = bar::show_with_editor(ui, state, |ui| {
                         self.show_rename_editor(ui);
                     });
                 } else {
-                    action = bar::show(ui, &name, state);
+                    outcome = bar::show(ui, &name, state);
                 }
             });
         let _ = renaming;
-        self.apply_bar_action(action, now, time);
+        self.apply_bar_action(outcome.action, now, time);
+
+        // The hint window only exists while there is something to explain, so it appears
+        // and disappears with the pointer.
+        if let Some(hint) = &outcome.hint {
+            hint::show(&ctx, hint, self.window_pos, monitor);
+        }
 
         if self.menu_open {
             let outcome = menu::show(
@@ -516,7 +543,8 @@ impl eframe::App for WipTracker {
                     decorated: self.is_decorated(),
                     notice: self.notice.as_deref(),
                     bar: self.window_pos,
-                    monitor: ctx.input(|input| input.viewport().monitor_size),
+                    monitor,
+                    platform_notice: is_wayland().then_some(WAYLAND_NOTICE),
                     was_focused: self.menu_was_focused,
                 },
             );
