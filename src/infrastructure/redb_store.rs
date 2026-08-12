@@ -20,6 +20,7 @@ const KEY_STACK: &str = "stack";
 const KEY_HISTORY: &str = "history";
 const KEY_NEXT_NUMBER: &str = "next_number";
 const KEY_SHOW_DURATION: &str = "show_duration";
+const KEY_DECORATED: &str = "decorated";
 const KEY_WINDOW_POS: &str = "window_pos";
 
 pub struct RedbStore {
@@ -103,6 +104,11 @@ impl Store for RedbStore {
         let show_duration = parse(read_meta(KEY_SHOW_DURATION)?)?
             .and_then(|value| value.as_bool())
             .unwrap_or(true);
+        let decorated = parse(read_meta(KEY_DECORATED)?)?
+            .map(serde_json::from_value::<Option<bool>>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .flatten();
         let window_pos = parse(read_meta(KEY_WINDOW_POS)?)?
             .map(serde_json::from_value::<Option<(f32, f32)>>)
             .transpose()
@@ -115,6 +121,7 @@ impl Store for RedbStore {
             history,
             next_number,
             show_duration,
+            decorated,
             window_pos,
         }))
     }
@@ -156,6 +163,7 @@ impl Store for RedbStore {
                 KEY_SHOW_DURATION,
                 &serde_json::json!(snapshot.show_duration),
             )?;
+            put(KEY_DECORATED, &serde_json::json!(snapshot.decorated))?;
             put(KEY_WINDOW_POS, &serde_json::json!(snapshot.window_pos))?;
         }
         transaction
@@ -231,6 +239,7 @@ mod tests {
             history,
             next_number: 2,
             show_duration: false,
+            decorated: Some(true),
             window_pos: Some((120.0, 40.0)),
         }
     }

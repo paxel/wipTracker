@@ -28,27 +28,37 @@ pub struct OpenWindows {
     week_input: String,
 }
 
-/// Draws every open window. Returns whether anything was changed that is worth storing.
+/// What the windows did this frame.
+#[derive(Clone, Copy, Default)]
+pub struct WindowOutcome {
+    /// Something changed that is worth storing.
+    pub changed: bool,
+    /// The user closed the day, which ends the session.
+    pub day_closed: bool,
+}
+
+/// Draws every open window.
 pub fn show_all(
     ctx: &Context,
     open: &mut OpenWindows,
     tracker: &mut Tracker,
     now: DateTime<Local>,
-) -> bool {
-    let mut changed = false;
+) -> WindowOutcome {
+    let mut outcome = WindowOutcome::default();
     if open.groom {
-        changed |= groom(ctx, open, tracker, now);
+        outcome.changed |= groom(ctx, open, tracker, now);
     }
     if open.end_day {
-        changed |= end_day(ctx, open, tracker, now);
+        outcome.day_closed = end_day(ctx, open, tracker, now);
+        outcome.changed |= outcome.day_closed;
     }
     if open.week {
         week(ctx, open, tracker, now);
     }
     if open.revive {
-        changed |= revive(ctx, open, tracker, now);
+        outcome.changed |= revive(ctx, open, tracker, now);
     }
-    changed
+    outcome
 }
 
 fn window(
@@ -209,9 +219,12 @@ fn end_day(
                 close_day = true;
             }
             ui.label(
-                RichText::new("Closing the day stamps its end time. Open tasks stay on the stack.")
-                    .color(theme::TEXT_DIM)
-                    .small(),
+                RichText::new(
+                    "Closing the day stamps its end time, saves, and quits. Open tasks stay \
+                     on the stack for tomorrow.",
+                )
+                .color(theme::TEXT_DIM)
+                .small(),
             );
         },
     );
@@ -411,6 +424,8 @@ fn revive(
     open.revive = still_open;
     if let Some(id) = revive_id {
         let _ = tracker.revive(id, now);
+        // Nothing left to bring back, so the window has done its job.
+        open.revive = !tracker.finished_tasks().is_empty();
         return true;
     }
     false

@@ -59,6 +59,7 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
     for label in [
         "write the report",
         PAUSE_NAME,
+        "window frame",
         "groom",
         "end day",
         "week",
@@ -69,6 +70,22 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
             "menu is missing an entry for {label}"
         );
     }
+}
+
+#[test]
+fn the_window_frame_can_be_toggled_from_the_menu() {
+    let mut harness = harness(Tracker::new(at(9)));
+    let before = harness.state().is_decorated();
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+
+    harness
+        .get_by_label_contains("window frame")
+        .click_accesskit();
+    harness.run();
+
+    assert_eq!(harness.state().is_decorated(), !before);
+    assert!(!harness.state().is_menu_open());
 }
 
 #[test]
@@ -89,4 +106,75 @@ fn picking_a_task_from_the_menu_focuses_it() {
     harness.run();
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
     assert!(!harness.state().is_menu_open());
+}
+
+/// kittest clicks with the primary button, so the middle button is sent by hand.
+fn middle_click(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2) {
+    let events = &mut harness.input_mut().events;
+    events.push(egui::Event::PointerMoved(pos));
+    events.push(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Middle,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    events.push(egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Middle,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    harness.run();
+}
+
+fn plus_center() -> egui::Pos2 {
+    egui::pos2(
+        theme::BAR_SIZE.x - theme::BAR_MARGIN - 1.5 * theme::BUTTON_SIZE.x,
+        theme::BAR_SIZE.y / 2.0,
+    )
+}
+
+fn name_center() -> egui::Pos2 {
+    egui::pos2(
+        theme::BAR_MARGIN + theme::GRIP_WIDTH + 30.0,
+        theme::BAR_SIZE.y / 2.0,
+    )
+}
+
+#[test]
+fn middle_clicking_plus_takes_a_break() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+    assert_eq!(harness.state().tracker().focused_name(), "write the report");
+
+    middle_click(&mut harness, plus_center());
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+
+    // The task is still open underneath, so it is only a break, not a finish.
+    assert!(
+        harness
+            .state()
+            .tracker()
+            .open_tasks_top_first()
+            .iter()
+            .any(|task| task.name == "write the report")
+    );
+}
+
+#[test]
+fn middle_clicking_the_name_opens_the_task_list() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+    assert!(!harness.state().is_menu_open());
+
+    middle_click(&mut harness, name_center());
+    assert!(harness.state().is_menu_open());
 }

@@ -24,6 +24,35 @@ impl Icon {
     }
 }
 
+/// The drag handle at the left edge of the bar: a column of dots, dragged to move the
+/// window. It exists so there is always somewhere unambiguous to grab, whatever else the
+/// bar is showing.
+pub fn grip(ui: &mut Ui) -> Response {
+    let size = egui::vec2(theme::GRIP_WIDTH, theme::BUTTON_SIZE.y);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
+    let enabled = ui.is_enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "move the bar")
+    });
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    let color = if response.hovered() {
+        theme::TEXT
+    } else {
+        theme::TEXT_DIM
+    };
+    let painter = ui.painter();
+    let center = rect.center();
+    for row in [-6.0, -2.0, 2.0, 6.0] {
+        for column in [-2.0, 2.0] {
+            painter.circle_filled(egui::pos2(center.x + column, center.y + row), 0.9, color);
+        }
+    }
+    response
+}
+
 /// A square icon button that reacts to hover and press.
 pub fn icon_button(ui: &mut Ui, icon: Icon) -> Response {
     let (rect, response) = ui.allocate_exact_size(theme::BUTTON_SIZE, Sense::click());

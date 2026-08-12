@@ -19,6 +19,9 @@ pub struct Snapshot {
     pub history: BTreeMap<NaiveDate, DayRecord>,
     pub next_number: u64,
     pub show_duration: bool,
+    /// Whether the window wears its window manager's frame. `None` means the user has not
+    /// chosen, so the platform default applies.
+    pub decorated: Option<bool>,
     /// Window position in logical points, as last seen.
     pub window_pos: Option<(f32, f32)>,
 }

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="196" viewBox="0 0 600 196" role="img" aria-label="Anatomy of the WipTracker bar">
+  <title>Anatomy of the WipTracker bar</title>
+
+  <!-- The bar itself, drawn at twice its real size of 278 by 32 logical points. -->
+  <g transform="translate(22, 16)">
+    <rect x="0" y="0" width="556" height="64" rx="2" fill="#1c2028" stroke="#555f70" stroke-width="2" />
+
+    <!-- drag handle: two columns of dots, x 12 to 32 -->
+    <g fill="#9aa3b2">
+      <circle cx="18" cy="20" r="1.8" /><circle cx="26" cy="20" r="1.8" />
+      <circle cx="18" cy="28" r="1.8" /><circle cx="26" cy="28" r="1.8" />
+      <circle cx="18" cy="36" r="1.8" /><circle cx="26" cy="36" r="1.8" />
+      <circle cx="18" cy="44" r="1.8" /><circle cx="26" cy="44" r="1.8" />
+    </g>
+
+    <!-- task name: x 32 to 332 -->
+    <text x="36" y="39" fill="#e6e6e6" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17">write the release notes</text>
+
+    <!-- clock: right aligned, ends at x 440 -->
+    <text x="436" y="38" fill="#9aa3b2" font-family="ui-monospace, monospace" font-size="15" text-anchor="end">1:23:45</text>
+
+    <!-- plus button, centred at x 466 -->
+    <g stroke="#e6e6e6" stroke-width="3.2" stroke-linecap="round">
+      <line x1="456" y1="32" x2="476" y2="32" />
+      <line x1="466" y1="22" x2="466" y2="42" />
+    </g>
+
+    <!-- burger button, centred at x 518 -->
+    <g stroke="#e6e6e6" stroke-width="3.2" stroke-linecap="round">
+      <line x1="507" y1="22" x2="529" y2="22" />
+      <line x1="507" y1="32" x2="529" y2="32" />
+      <line x1="507" y1="42" x2="529" y2="42" />
+    </g>
+  </g>
+
+  <!-- callouts: dashed leader from each part of the bar down to its label -->
+  <g stroke="#7d8590" stroke-width="1.4" stroke-dasharray="3 3">
+    <line x1="44" y1="84" x2="44" y2="104" />
+    <line x1="202" y1="84" x2="202" y2="140" />
+    <line x1="410" y1="84" x2="410" y2="104" />
+    <line x1="488" y1="84" x2="488" y2="140" />
+    <line x1="540" y1="84" x2="540" y2="100" />
+  </g>
+  <g fill="#7d8590" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">
+    <text x="44" y="120" text-anchor="middle">drag handle</text>
+    <text x="202" y="156" text-anchor="middle">task name, about 4 cm</text>
+    <text x="410" y="120" text-anchor="middle">time on this task</text>
+    <text x="488" y="156" text-anchor="middle">new task · finish · break</text>
+    <text x="540" y="116" text-anchor="middle">menu</text>
+  </g>
+</svg>

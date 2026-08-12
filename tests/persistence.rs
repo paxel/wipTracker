@@ -31,7 +31,7 @@ fn the_app_resumes_the_stored_state_and_writes_its_own_changes_back() {
 
         let store = RedbStore::open(&path).expect("open");
         store
-            .save(&tracker.snapshot(false, Some((120.0, 40.0))))
+            .save(&tracker.snapshot(false, Some(true), Some((120.0, 40.0))))
             .expect("save");
     }
 
@@ -73,6 +73,11 @@ fn the_app_resumes_the_stored_state_and_writes_its_own_changes_back() {
     assert!(
         !stored.show_duration,
         "the hidden clock should have survived the restart"
+    );
+    assert_eq!(
+        stored.decorated,
+        Some(true),
+        "the window frame preference should have survived the restart"
     );
     assert_eq!(stored.next_number, 3);
 }

@@ -124,6 +124,25 @@ fn closing_the_day_marks_it_closed() {
 }
 
 #[test]
+fn the_revive_window_closes_once_nothing_is_left_to_revive() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().revive = true;
+    harness.run();
+
+    harness
+        .get_by_label_contains("review the pull request")
+        .click_accesskit();
+    harness.run();
+
+    assert!(
+        !harness.state().windows().revive,
+        "the last finished task was revived, so the window should be gone"
+    );
+}
+
+#[test]
 fn reviving_from_the_window_puts_the_task_back_on_top() {
     use egui_kittest::kittest::Queryable as _;
 

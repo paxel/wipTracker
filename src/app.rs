@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local};
 
 use crate::domain::ports::{Snapshot, Store, StoreError};
-use crate::domain::task::TaskId;
+use crate::domain::task::{PAUSE_ID, TaskId};
 use crate::domain::tracker::Tracker;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
@@ -13,12 +13,24 @@ use crate::ui::format;
 use crate::ui::menu::{self, MenuAction};
 use crate::ui::windows::{self, OpenWindows};
 
+/// Whether this environment gets a window frame unless the user says otherwise.
+///
+/// An undecorated window can only be moved if the environment honours the window
+/// manager's move gesture. Wayland compositors frequently do not, and there is no way to
+/// move the window by hand there either, so a frame is the only way out. X11, macOS and
+/// Windows all behave, and get the clean frameless bar.
+pub fn prefers_decorations() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("DISPLAY").is_none()
+}
+
 /// How often state is written even when nothing changed, so a crash costs little.
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 pub struct WipTracker {
     tracker: Tracker,
     show_duration: bool,
+    /// `None` until the user chooses; see [`prefers_decorations`].
+    decorated: Option<bool>,
     store: Option<Box<dyn Store>>,
     /// Set when the store could not be read: the app then refuses to write over it.
     fatal: Option<String>,
@@ -27,6 +39,8 @@ pub struct WipTracker {
     window_pos: Option<(f32, f32)>,
     menu_open: bool,
     menu_was_focused: bool,
+    /// Set when the frame preference changed and the window has yet to be told.
+    decorations_pending: bool,
     rename: Option<Rename>,
     windows: OpenWindows,
 }
@@ -50,6 +64,7 @@ impl WipTracker {
                 let tracker = Tracker::from_snapshot(&snapshot, now);
                 let mut app = Self::with_tracker(cc, tracker);
                 app.show_duration = snapshot.show_duration;
+                app.decorated = snapshot.decorated;
                 app.window_pos = snapshot.window_pos;
                 app
             }
@@ -82,6 +97,7 @@ impl WipTracker {
         Self {
             tracker,
             show_duration: true,
+            decorated: None,
             store: None,
             fatal: None,
             dirty: false,
@@ -89,6 +105,7 @@ impl WipTracker {
             window_pos: None,
             menu_open: false,
             menu_was_focused: false,
+            decorations_pending: false,
             rename: None,
             windows: OpenWindows::default(),
         }
@@ -104,6 +121,15 @@ impl WipTracker {
 
     pub fn set_show_duration(&mut self, show: bool) {
         self.show_duration = show;
+    }
+
+    /// Whether the window currently wears its window manager's frame.
+    pub fn is_decorated(&self) -> bool {
+        self.decorated.unwrap_or_else(prefers_decorations)
+    }
+
+    pub fn windows(&self) -> &OpenWindows {
+        &self.windows
     }
 
     pub fn windows_mut(&mut self) -> &mut OpenWindows {
@@ -135,7 +161,9 @@ impl WipTracker {
             self.dirty = false;
             return;
         };
-        let snapshot = self.tracker.snapshot(self.show_duration, self.window_pos);
+        let snapshot = self
+            .tracker
+            .snapshot(self.show_duration, self.decorated, self.window_pos);
         match store.save(&snapshot) {
             Ok(()) => {
                 self.dirty = false;
@@ -189,6 +217,14 @@ impl WipTracker {
                 self.menu_was_focused = false;
             }
             BarAction::StartRename => self.start_rename(),
+            BarAction::OpenSelect => {
+                self.menu_open = true;
+                self.menu_was_focused = false;
+            }
+            BarAction::SwitchToPause => {
+                let _ = self.tracker.select(PAUSE_ID, now);
+                self.dirty = true;
+            }
             BarAction::None => {}
         }
     }
@@ -201,6 +237,11 @@ impl WipTracker {
             }
             MenuAction::ToggleDuration => {
                 self.show_duration = !self.show_duration;
+                self.dirty = true;
+            }
+            MenuAction::ToggleDecorations => {
+                self.decorated = Some(!self.is_decorated());
+                self.decorations_pending = true;
                 self.dirty = true;
             }
             MenuAction::OpenGroom => self.windows.groom = true,
@@ -253,6 +294,10 @@ impl eframe::App for WipTracker {
         self.tracker.accrue(now);
         ctx.request_repaint_after(Duration::from_secs(1));
         self.remember_window_pos(&ctx);
+        if self.decorations_pending {
+            self.decorations_pending = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(self.is_decorated()));
+        }
 
         let name = self.tracker.focused_name().to_owned();
         let clock = self
@@ -282,6 +327,7 @@ impl eframe::App for WipTracker {
                 &ctx,
                 &self.tracker,
                 self.show_duration,
+                self.is_decorated(),
                 self.window_pos,
                 self.menu_was_focused,
             );
@@ -290,12 +336,18 @@ impl eframe::App for WipTracker {
             self.apply_menu_action(outcome.action, now);
         }
 
-        let changed = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);
-        if changed {
+        let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);
+        if outcome.changed {
             self.dirty = true;
         }
 
         self.maybe_save();
+
+        // Closing the day is the end of the session: there is nothing left for the bar to
+        // show, and a clock left running overnight would credit the wrong day.
+        if outcome.day_closed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     fn on_exit(&mut self) {

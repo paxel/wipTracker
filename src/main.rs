@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use wiptracker::app::WipTracker;
+use wiptracker::app::{WipTracker, prefers_decorations};
 use wiptracker::domain::ports::Store as _;
 use wiptracker::infrastructure::redb_store::RedbStore;
 use wiptracker::theme;
@@ -15,13 +15,20 @@ fn main() -> eframe::Result<()> {
         Ok((store, snapshot))
     });
 
+    let decorated = opened
+        .as_ref()
+        .ok()
+        .and_then(|(_, snapshot)| snapshot.as_ref())
+        .and_then(|snapshot| snapshot.decorated)
+        .unwrap_or_else(prefers_decorations);
+
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("WipTracker")
         .with_app_id("wiptracker")
         .with_inner_size(theme::BAR_SIZE)
         .with_min_inner_size(theme::BAR_SIZE)
         .with_max_inner_size(theme::BAR_SIZE)
-        .with_decorations(false)
+        .with_decorations(decorated)
         .with_always_on_top()
         .with_resizable(false);
     if let Ok((_, Some(snapshot))) = &opened

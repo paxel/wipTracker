@@ -6,11 +6,13 @@ use egui::{Color32, Vec2};
 pub const LABEL_WIDTH: f32 = 150.0;
 /// Width reserved for the running clock.
 pub const CLOCK_WIDTH: f32 = 54.0;
+/// Width of the grip at the left edge, which exists only to drag the window.
+pub const GRIP_WIDTH: f32 = 10.0;
 pub const BUTTON_SIZE: Vec2 = Vec2::new(26.0, 24.0);
 pub const BAR_MARGIN: f32 = 6.0;
 
 pub const BAR_SIZE: Vec2 = Vec2::new(
-    LABEL_WIDTH + CLOCK_WIDTH + 2.0 * BUTTON_SIZE.x + 2.0 * BAR_MARGIN,
+    GRIP_WIDTH + LABEL_WIDTH + CLOCK_WIDTH + 2.0 * BUTTON_SIZE.x + 2.0 * BAR_MARGIN,
     32.0,
 );
 

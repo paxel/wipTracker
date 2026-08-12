@@ -81,13 +81,19 @@ impl Tracker {
     }
 
     /// Everything worth storing.
-    pub fn snapshot(&self, show_duration: bool, window_pos: Option<(f32, f32)>) -> Snapshot {
+    pub fn snapshot(
+        &self,
+        show_duration: bool,
+        decorated: Option<bool>,
+        window_pos: Option<(f32, f32)>,
+    ) -> Snapshot {
         Snapshot {
             tasks: self.tasks.clone(),
             stack: self.stack.clone(),
             history: self.history.clone(),
             next_number: self.next_number,
             show_duration,
+            decorated,
             window_pos,
         }
     }
@@ -607,7 +613,7 @@ mod tests {
         let task = tracker.push_new_task(at(1, 9));
         tracker.accrue(at(1, 11));
 
-        let snapshot = tracker.snapshot(false, Some((10.0, 20.0)));
+        let snapshot = tracker.snapshot(false, None, Some((10.0, 20.0)));
         let restored = Tracker::from_snapshot(&snapshot, at(1, 11));
 
         assert_eq!(restored.focused_id(), task);
@@ -631,6 +637,7 @@ mod tests {
             history: BTreeMap::new(),
             next_number: 9,
             show_duration: true,
+            decorated: None,
             window_pos: None,
         };
         let tracker = Tracker::from_snapshot(&snapshot, at(1, 11));

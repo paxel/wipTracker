@@ -89,3 +89,30 @@ fn the_empty_stack_shows_pause() {
 
     assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
 }
+
+/// Regenerates the screenshot the README shows. Run with:
+/// `cargo test --test bar_render docs_screenshot -- --ignored`
+#[test]
+#[ignore = "writes into docs/, run on purpose"]
+fn docs_screenshot() {
+    // Accruing into the future pins the clock: the app's own accrual then adds nothing,
+    // so the screenshot reads the same every time it is regenerated.
+    let start = Local::now();
+    let mut tracker = Tracker::new(start);
+    let id = tracker.push_new_task(start);
+    tracker
+        .rename(id, "write the release notes")
+        .expect("rename");
+    tracker.accrue(start + chrono::TimeDelta::seconds(5025));
+
+    let mut harness = Harness::builder()
+        .with_size(theme::BAR_SIZE)
+        .with_pixels_per_point(3.0)
+        .wgpu()
+        .build_eframe(|cc| WipTracker::with_tracker(cc, tracker));
+    harness.run();
+
+    let image = harness.render().expect("wgpu render");
+    std::fs::create_dir_all("docs").expect("create docs dir");
+    image.save("docs/bar.png").expect("save png");
+}

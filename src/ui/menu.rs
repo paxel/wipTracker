@@ -17,6 +17,7 @@ pub enum MenuAction {
     None,
     Select(TaskId),
     ToggleDuration,
+    ToggleDecorations,
     OpenGroom,
     OpenEndDay,
     OpenWeek,
@@ -44,12 +45,13 @@ pub fn show(
     ctx: &Context,
     tracker: &Tracker,
     show_duration: bool,
+    decorated: bool,
     below: Option<(f32, f32)>,
     was_focused: bool,
 ) -> MenuOutcome {
     let open_tasks = tracker.open_tasks_top_first();
     let today = Local::now().date_naive();
-    let rows = open_tasks.len() as f32 + 6.0;
+    let rows = open_tasks.len() as f32 + 7.0;
     let height = (rows * ROW_HEIGHT + 24.0).min(420.0);
 
     let mut action = MenuAction::None;
@@ -95,14 +97,32 @@ pub fn show(
                     } else {
                         "show duration"
                     };
-                    for (label, picked) in [
-                        (duration_label, MenuAction::ToggleDuration),
-                        ("groom", MenuAction::OpenGroom),
-                        ("end day", MenuAction::OpenEndDay),
-                        ("week", MenuAction::OpenWeek),
-                        ("revive", MenuAction::OpenRevive),
+                    let frame_label = if decorated {
+                        "hide window frame"
+                    } else {
+                        "show window frame"
+                    };
+                    let can_revive = !tracker.finished_tasks().is_empty();
+                    for (label, picked, enabled) in [
+                        (duration_label, MenuAction::ToggleDuration, true),
+                        (frame_label, MenuAction::ToggleDecorations, true),
+                        ("groom", MenuAction::OpenGroom, true),
+                        ("end day", MenuAction::OpenEndDay, true),
+                        ("week", MenuAction::OpenWeek, true),
+                        ("revive", MenuAction::OpenRevive, can_revive),
                     ] {
-                        if ui.button(RichText::new(label).color(theme::TEXT)).clicked() {
+                        let color = if enabled {
+                            theme::TEXT
+                        } else {
+                            theme::TEXT_DIM
+                        };
+                        let clicked = ui
+                            .add_enabled(
+                                enabled,
+                                egui::Button::new(RichText::new(label).color(color)),
+                            )
+                            .clicked();
+                        if clicked {
                             action = picked;
                             keep_open = false;
                         }

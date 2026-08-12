@@ -1,9 +1,12 @@
 //! The always-on-top one-line bar.
 
-use egui::{Align, Frame, Label, Layout, Margin, RichText, Sense, Stroke, Ui, ViewportCommand};
+use egui::{
+    Align, Frame, Label, Layout, Margin, Response, RichText, Sense, Stroke, Ui, Vec2,
+    ViewportCommand,
+};
 
 use crate::theme;
-use crate::ui::widgets::{Icon, icon_button};
+use crate::ui::widgets::{Icon, grip, icon_button};
 
 /// What the user asked for by interacting with the bar this frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -14,6 +17,34 @@ pub enum BarAction {
     FinishTask,
     ToggleMenu,
     StartRename,
+    /// Middle-click on the task name: straight to the list of tasks to switch to.
+    OpenSelect,
+    /// Middle-click on `+`: straight to a break.
+    SwitchToPause,
+}
+
+/// Moves the window while `response` is dragged.
+///
+/// The first choice is the window manager's own move gesture, which snaps and behaves like
+/// dragging any other window. Some environments ignore that request and keep sending drag
+/// events instead; when that happens the window is moved by hand, which needs a known
+/// window position and so does not work on Wayland.
+fn drag_window(ui: &Ui, response: &Response) {
+    if response.drag_started() {
+        ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+        return;
+    }
+    if !response.dragged() {
+        return;
+    }
+    let delta = response.drag_delta();
+    if delta == Vec2::ZERO {
+        return;
+    }
+    if let Some(rect) = ui.ctx().input(|i| i.viewport().outer_rect) {
+        ui.ctx()
+            .send_viewport_cmd(ViewportCommand::OuterPosition(rect.min + delta));
+    }
 }
 
 pub fn frame() -> Frame {
@@ -70,17 +101,20 @@ fn show_inner(
         Layout::left_to_right(Align::Center),
         |ui| {
             let row = ui.max_rect();
-            let drag = ui.interact(row, ui.id().with("drag_surface"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-            }
+            let surface = ui.interact(row, ui.id().with("drag_surface"), Sense::click_and_drag());
+            drag_window(ui, &surface);
 
             let clock_width = if clock.is_some() {
                 theme::CLOCK_WIDTH
             } else {
                 0.0
             };
-            let label_width = (width - clock_width - 2.0 * theme::BUTTON_SIZE.x - 4.0).max(0.0);
+            let label_width =
+                (width - theme::GRIP_WIDTH - clock_width - 2.0 * theme::BUTTON_SIZE.x - 6.0)
+                    .max(0.0);
+
+            let handle = grip(ui);
+            drag_window(ui, &handle);
 
             ui.allocate_ui_with_layout(
                 egui::vec2(label_width, height),
@@ -89,16 +123,21 @@ fn show_inner(
                     if let Some(editor) = editor {
                         editor(ui);
                     } else if let Some(name) = name {
+                        // The name is the obvious place to grab the bar, so it drags the
+                        // window as well as offering rename on a right-click.
                         let response = ui
                             .add(
                                 Label::new(RichText::new(name).color(theme::TEXT))
                                     .truncate()
                                     .selectable(false)
-                                    .sense(Sense::click()),
+                                    .sense(Sense::click_and_drag()),
                             )
                             .on_hover_text(name);
+                        drag_window(ui, &response);
                         if response.secondary_clicked() {
                             action = BarAction::StartRename;
+                        } else if response.middle_clicked() {
+                            action = BarAction::OpenSelect;
                         }
                     }
                 },
@@ -113,6 +152,8 @@ fn show_inner(
                     action = BarAction::AddTask;
                 } else if plus.secondary_clicked() {
                     action = BarAction::FinishTask;
+                } else if plus.middle_clicked() {
+                    action = BarAction::SwitchToPause;
                 }
 
                 if let Some(clock) = clock {
