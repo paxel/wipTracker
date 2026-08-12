@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Every branch, not just main: the work happens on topic branches and the gate is
+  # only useful if it runs where the commits land.
   push:
-    branches: [main]
   pull_request:
 
 env:
