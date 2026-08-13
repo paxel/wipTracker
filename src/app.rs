@@ -54,6 +54,7 @@ pub fn choose_backend() -> Backend {
 ///
 /// A display on another host is taken at its word; only the local socket is cheap enough
 /// to test.
+#[cfg(unix)]
 fn x11_is_reachable() -> bool {
     let Some(display) = std::env::var_os("DISPLAY") else {
         return false;
@@ -67,6 +68,14 @@ fn x11_is_reachable() -> bool {
     }
     let number = rest.split('.').next().unwrap_or_default();
     std::os::unix::net::UnixStream::connect(format!("/tmp/.X11-unix/X{number}")).is_ok()
+}
+
+/// Windows has no X server and no unix sockets to look for one on. The answer is never
+/// used there — `WAYLAND_DISPLAY` is not set either, so the choice never reaches it — but
+/// the function has to exist for the code around it to compile.
+#[cfg(not(unix))]
+fn x11_is_reachable() -> bool {
+    false
 }
 
 /// The rule behind [`choose_backend`], kept apart from the environment so it can be tested.

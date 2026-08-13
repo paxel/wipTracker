@@ -60,3 +60,30 @@ jobs:
         # The render tests need a Vulkan device; lavapipe from mesa-vulkan-drivers
         # provides a software one on the runner.
         run: cargo test --all-features
+
+  cross:
+    # Ubuntu alone used to be the whole gate, so anything platform-specific — a unix-only
+    # API, a path assumption — compiled here and only broke once a tag reached the release
+    # workflow. This builds the other two targets on every push instead.
+    #
+    # Clippy rather than the test suite: `--all-targets` still compiles the tests, and the
+    # render tests want a GPU that these runners do not reliably have.
+    name: compile (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
