@@ -46,7 +46,7 @@ jobs:
             libasound2-dev pkg-config \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libvulkan1 mesa-vulkan-drivers
+            libvulkan1 mesa-vulkan-drivers desktop-file-utils
       - name: Tag matches the crate version
         run: |
           ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
@@ -55,6 +55,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+      # The same packaging checks CI runs: a broken entry would otherwise only surface
+      # once the .deb had installed it on someone's machine.
+      - run: desktop-file-validate packaging/wiptracker.desktop
+      - run: sh -n packaging/install-icon.sh && bash -n packaging/mkdeb.sh && bash -n packaging/mkapp.sh
 
   build-linux:
     name: Linux artifacts

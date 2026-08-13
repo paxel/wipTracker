@@ -5,8 +5,12 @@ on:
   # useful if it runs where the commits land. Tags are excluded — the release workflow
   # runs the same fmt/clippy/test gate before it builds anything, so a tag would otherwise
   # pay for it twice.
+  #
+  # Naming branches is what excludes the tags. A `tags-ignore` on its own does not: when
+  # only tag filters are given, GitHub runs the workflow for tags alone and skips branch
+  # pushes entirely — which is how this silently stopped running on every push.
   push:
-    tags-ignore: ["**"]
+    branches: ["**"]
   pull_request:
 
 env:
