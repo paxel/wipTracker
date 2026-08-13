@@ -2,7 +2,7 @@
 #
 #   gate          — the full Linux gate once more (fmt, clippy, all tests)
 #   build-linux   — tar.gz (binary, icon, .desktop, install script) and a .deb
-#   build-windows — zip with wiptracker.exe
+#   build-windows — zip with wiptracker.exe and the Start-menu shortcut script
 #   build-macos   — per-arch binary tar.gz (what Homebrew installs) plus one universal
 #                   unsigned WipTracker.app in a .dmg (what people download by hand)
 #   release       — GitHub Release, notes = the CHANGELOG section for the tag
@@ -82,7 +82,8 @@ jobs:
           ver=${RELEASE_TAG#v}
           mkdir -p dist stage
           cp target/release/wiptracker stage/
-          cp assets/icon.png packaging/wiptracker.desktop packaging/install-icon.sh stage/
+          cp assets/icon.png assets/icon-*.png packaging/wiptracker.desktop \
+            packaging/install-icon.sh stage/
           cp README.md LICENSE-MIT LICENSE-APACHE stage/
           tar -C stage -czf "dist/wiptracker-${ver}-linux-x86_64.tar.gz" .
       - name: Debian package
@@ -110,6 +111,7 @@ jobs:
           $ver = $env:RELEASE_TAG.TrimStart("v")
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path target/release/wiptracker.exe, `
+                                 packaging/install-shortcut.ps1, `
                                  LICENSE-MIT, `
                                  LICENSE-APACHE `
                            -DestinationPath "dist/wiptracker-$ver-windows-x86_64.zip"

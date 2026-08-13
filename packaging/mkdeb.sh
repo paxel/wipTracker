@@ -50,7 +50,14 @@ trap 'rm -rf "$STAGE"' EXIT
 
 install -Dm755 "$BIN" "$STAGE/usr/bin/wiptracker"
 install -Dm644 packaging/wiptracker.desktop "$STAGE/usr/share/applications/wiptracker.desktop"
+# Every size the icon generator writes: a menu drawing at 32 pixels should not have to
+# downsample the 512 pixel version.
 install -Dm644 assets/icon.png "$STAGE/usr/share/icons/hicolor/512x512/apps/wiptracker.png"
+for size in 32 48 64 128 256; do
+  [ -f "assets/icon-$size.png" ] || continue
+  install -Dm644 "assets/icon-$size.png" \
+    "$STAGE/usr/share/icons/hicolor/${size}x${size}/apps/wiptracker.png"
+done
 install -Dm644 LICENSE-MIT "$STAGE/usr/share/doc/wiptracker/LICENSE-MIT"
 install -Dm644 LICENSE-APACHE "$STAGE/usr/share/doc/wiptracker/LICENSE-APACHE"
 install -Dm644 README.md "$STAGE/usr/share/doc/wiptracker/README.md"

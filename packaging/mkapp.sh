@@ -29,7 +29,10 @@ install -m755 "$BIN" "$APP/Contents/MacOS/wiptracker"
 
 # Icon: an iconset scaled from the generated PNG, then compiled to .icns.
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-ICON_PNG="$ROOT/assets/icon.png"
+# The 1024 pixel render when the generator has written one: the iconset wants 512@2x, and
+# upscaling the 512 pixel file for that slot is what it used to do.
+ICON_PNG="$ROOT/assets/icon-1024.png"
+[ -f "$ICON_PNG" ] || ICON_PNG="$ROOT/assets/icon.png"
 if [ -f "$ICON_PNG" ]; then
   ICONSET=$(mktemp -d)/WipTracker.iconset
   mkdir -p "$ICONSET"
@@ -40,7 +43,7 @@ if [ -f "$ICON_PNG" ]; then
   done
   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/WipTracker.icns"
 else
-  echo "mkapp: no assets/icon.png, bundling without an icon" >&2
+  echo "mkapp: no icon in assets/, bundling without one" >&2
 fi
 
 # LSUIElement keeps the bar out of the Dock and the app switcher: it is a strip of
@@ -60,6 +63,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>wiptracker</string>
   <key>CFBundleIconFile</key><string>WipTracker</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

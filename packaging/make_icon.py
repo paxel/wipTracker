@@ -2,11 +2,13 @@
 """Draw the WipTracker icon: a small cat reading a book.
 
 The icon is generated rather than hand-drawn so it can be regenerated at any size and
-kept in step with the app's palette. It writes two files:
+kept in step with the app's palette. It writes:
 
-  assets/icon.png   — 512x512, for the macOS bundle and the docs
-  assets/icon.rgba  — 64x64 raw RGBA, which the app embeds and hands to the window
-                      manager without needing an image decoder at runtime
+  assets/icon.png       — 512x512, the source for the macOS bundle and the docs
+  assets/icon-<n>.png   — 32, 48, 64, 128, 256 and 1024 pixels, so a launcher menu can
+                          take the size it draws at instead of downsampling 512
+  assets/icon.rgba      — 64x64 raw RGBA, which the app embeds and hands to the window
+                          manager without needing an image decoder at runtime
 
 Usage: packaging/make_icon.py
 """
@@ -99,17 +101,28 @@ def draw_icon() -> Image.Image:
     return image
 
 
+# The sizes a desktop actually draws menu and taskbar entries at, plus 1024 for the
+# macOS bundle's @2x slots. 512 keeps its plain name because the docs and the bundle
+# script have always looked for it there.
+SIZES = (32, 48, 64, 128, 256, 1024)
+
+
 def main() -> None:
     ASSETS.mkdir(exist_ok=True)
     icon = draw_icon()
 
-    png = icon.resize((512, 512), Image.LANCZOS)
-    png.save(ASSETS / "icon.png")
+    written = []
+    icon.resize((512, 512), Image.LANCZOS).save(ASSETS / "icon.png")
+    written.append("icon.png")
+    for size in SIZES:
+        icon.resize((size, size), Image.LANCZOS).save(ASSETS / f"icon-{size}.png")
+        written.append(f"icon-{size}.png")
 
     small = icon.resize((64, 64), Image.LANCZOS)
     (ASSETS / "icon.rgba").write_bytes(small.tobytes())
+    written.append("icon.rgba")
 
-    print(f"wrote {ASSETS / 'icon.png'} and {ASSETS / 'icon.rgba'}")
+    print(f"wrote {len(written)} files into {ASSETS}: {', '.join(written)}")
 
 
 if __name__ == "__main__":

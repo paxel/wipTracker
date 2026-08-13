@@ -34,10 +34,20 @@ jobs:
             libasound2-dev pkg-config \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libvulkan1 mesa-vulkan-drivers
+            libvulkan1 mesa-vulkan-drivers \
+            desktop-file-utils
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Validate the desktop entry and the install scripts
+        # A typo here is invisible until a desktop silently ignores the entry, or a user
+        # runs the installer from the tarball and it breaks halfway through.
+        run: |
+          desktop-file-validate packaging/wiptracker.desktop
+          sh -n packaging/install-icon.sh
+          bash -n packaging/mkdeb.sh
+          bash -n packaging/mkapp.sh
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings

@@ -33,6 +33,14 @@ class Wiptracker < Formula
 
     (share/"applications").install "wiptracker.desktop"
     (share/"icons/hicolor/512x512/apps").install "icon.png" => "wiptracker.png"
+    # The smaller sizes matter: a menu drawing at 32 pixels would otherwise downsample the
+    # 512 pixel one.
+    [32, 48, 64, 128, 256].each do |size|
+      source = "icon-#{size}.png"
+      next unless File.exist?(source)
+
+      (share/"icons/hicolor/#{size}x#{size}/apps").install source => "wiptracker.png"
+    end
   end
 
   def caveats

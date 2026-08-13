@@ -6,7 +6,12 @@ Comment=The task you are focused on right now, in a one-line bar
 Exec=wiptracker
 Icon=wiptracker
 Terminal=false
-Categories=Utility;Office;ProjectManagement;
+# One main category only: Utility and Office are both main categories, and listing two
+# makes the app show up twice in some menus. ProjectManagement belongs under Office.
+Categories=Office;ProjectManagement;
+# What someone types into a launcher when they are looking for this: the app's own name
+# is rarely the first thing that comes to mind.
+Keywords=time;timer;tracking;timetracking;focus;task;tasks;work;productivity;stopwatch;
 # Wayland/KDE matches the running window's app_id (set via with_app_id("wiptracker"))
 # to this file for the taskbar/titlebar icon; keep both equal to "wiptracker".
 StartupWMClass=wiptracker

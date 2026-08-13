@@ -50,7 +50,23 @@ tar -xzf wiptracker-*-linux-x86_64.tar.gz
 ./wiptracker
 ```
 
-**Windows** — unpack the zip and run `wiptracker.exe`.
+Add `--autostart` to that script to have WipTracker start with your session, and
+`--no-autostart` to stop it again. With the `.deb` or Homebrew, the same is one copy:
+
+```sh
+mkdir -p ~/.config/autostart
+cp /usr/share/applications/wiptracker.desktop ~/.config/autostart/
+```
+
+**Windows** — unpack the zip and run `wiptracker.exe`. To get it into the Start menu, and
+optionally into your login:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-shortcut.ps1 -Startup
+```
+
+Both shortcuts are per-user and need no administrator rights; `-Remove` takes them away
+again. Scoop installs the Start-menu entry itself, so this is only for the zip.
 
 **macOS** — open the `.dmg` (one universal build, Apple Silicon and Intel) and move
 `WipTracker.app` to `/Applications`. The build is not
@@ -60,6 +76,10 @@ signed with an Apple Developer certificate, so Gatekeeper will refuse it on firs
 ```sh
 xattr -cr /Applications/WipTracker.app
 ```
+
+To have it start with your session, add it under _System Settings → General → Login Items
+→ Open at Login_. The bar has no Dock icon and no Cmd-Tab entry by design — it is a
+one-line window, not an application to switch to — so _end day_ is how you close it.
 
 Or use a package manager — each release pushes a formula and a manifest.
 
@@ -242,8 +262,9 @@ can be regenerated at any size:
 packaging/make_icon.py
 ```
 
-It writes `assets/icon.png` (used by the macOS bundle and this page) and
-`assets/icon.rgba`, the 64x64 raw buffer the app embeds for the taskbar.
+It writes `assets/icon.png` (512 pixels, used by this page), `assets/icon-<size>.png` for
+the sizes a launcher menu draws at, and `assets/icon.rgba`, the 64x64 raw buffer the app
+embeds for the taskbar. The macOS bundle builds its `.icns` from the 1024 pixel one.
 
 Releases are cut by pushing a tag (`git tag v0.1.0 && git push --tags`). The workflow
 builds all three platforms, creates the GitHub release from the matching `CHANGELOG.md`

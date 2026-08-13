@@ -6,6 +6,11 @@ All notable changes to WipTracker are documented in this file.
 
 ### Added
 
+- **Start with your session, on every platform.** `install-icon.sh --autostart` on Linux
+  writes the autostart entry (and `--no-autostart` removes it); on Windows the zip now
+  carries `install-shortcut.ps1`, which puts WipTracker in the Start menu and, with
+  `-Startup`, into your login; on macOS the README says where the Login Items setting is.
+  The Windows script also fills the gap where only Scoop users had a Start-menu entry.
 - **A hint window beside the bar.** Hovering a control explains it, and holding one shows
   the reading cat filling up as the hold runs. The bar's tooltips could never work: egui
   keeps a tooltip inside the window it belongs to, and that window is 32 pixels tall, so
@@ -14,6 +19,14 @@ All notable changes to WipTracker are documented in this file.
 
 ### Changed
 
+- **The icon comes in every size a menu draws at**, instead of one 512 pixel file that
+  each desktop had to downsample itself — 32 to 256 pixels for launchers and taskbars,
+  1024 for the macOS bundle. All of them are installed by the `.deb`, by Homebrew and by
+  `install-icon.sh`.
+- **Launcher search finds WipTracker by what it does.** The desktop entry lists keywords —
+  time, timer, tracking, focus, task, productivity — where before only the name matched.
+  It also declares one main category instead of two, so it no longer risks appearing twice
+  in the same menu.
 - **Left click and hold are the only gestures.** Right click, middle click and double click
   are gone from the bar, so a trackpad, a touchpad and a touchscreen can all reach every
   command. Clicking the task name renames it; holding it for two seconds finishes it, or
