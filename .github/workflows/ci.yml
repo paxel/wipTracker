@@ -87,3 +87,35 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  coverage:
+    # The ratchet: line coverage may only go up. The floor lives in .coverage-floor; a
+    # change that lowers coverage fails here, and a change that raises it is expected to
+    # raise the floor in the same commit (scripts/coverage.sh does that when run locally).
+    name: coverage ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev pkg-config \
+            libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libvulkan1 mesa-vulkan-drivers
+
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Enforce the floor
+        run: scripts/coverage.sh --check

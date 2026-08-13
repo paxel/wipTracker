@@ -177,13 +177,21 @@ fn renaming_the_focused_task_commits_on_enter() {
     assert!(!harness.state().is_renaming());
 }
 
-/// An alarm that only records that it went off.
+/// An alarm that only records what went off: task sounds count single, day sounds count
+/// by the hundred, so a test can tell them apart in one number.
 #[derive(Clone, Default)]
 struct SilentAlarm(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+const DAY_SOUND: usize = 100;
 
 impl wiptracker::domain::ports::Alarm for SilentAlarm {
     fn sound(&self) {
         self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn sound_day_over(&self) {
+        self.0
+            .fetch_add(DAY_SOUND, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -220,6 +228,27 @@ fn the_timer_window_sets_a_task_and_the_default() {
             .task(focused)
             .map(|task| task.timer),
         Some(std::time::Duration::from_secs(3600))
+    );
+}
+
+#[test]
+fn the_timer_window_sets_the_day_timer() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().timer = true;
+    harness.run();
+
+    harness
+        .get_by_label_contains("the whole day")
+        .click_accesskit();
+    harness.run();
+    harness.get_by_label("8h").click_accesskit();
+    harness.run();
+
+    assert_eq!(
+        harness.state().tracker().day_timer(),
+        std::time::Duration::from_secs(8 * 3600)
     );
 }
 
@@ -302,4 +331,66 @@ fn the_day_window_exports_json_to_the_clipboard() {
         assert!(row.get("task").is_some());
         assert!(row["seconds"].is_u64());
     }
+}
+
+/// The launcher offer: installing writes the entry and icons into the given directory
+/// and never asks again; declining never asks again either.
+#[test]
+fn the_launcher_offer_installs_and_is_not_asked_again() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let data_home = scratch.path().to_path_buf();
+    let into = data_home.clone();
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, Tracker::new(at(1, 9)));
+            app.set_launcher_data_home(into);
+            app.windows_mut().launcher_offer = true;
+            app
+        });
+    harness.run();
+
+    harness.get_by_label("Add to the menu").click_accesskit();
+    harness.run();
+
+    let entry = data_home.join("applications/wiptracker.desktop");
+    assert!(entry.exists(), "the entry was written");
+    let written = std::fs::read_to_string(&entry).expect("read entry");
+    assert!(
+        written.contains("TryExec="),
+        "the entry hides itself once the binary is uninstalled"
+    );
+    assert!(
+        data_home
+            .join("icons/hicolor/256x256/apps/wiptracker.png")
+            .exists(),
+        "the icons came with it"
+    );
+    assert!(
+        !harness.state().windows().launcher_offer,
+        "the offer closes after installing"
+    );
+}
+
+#[test]
+fn declining_the_launcher_offer_is_remembered() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, Tracker::new(at(1, 9)));
+            app.windows_mut().launcher_offer = true;
+            app
+        });
+    harness.run();
+
+    harness.get_by_label("Don't ask again").click_accesskit();
+    harness.run();
+    assert!(!harness.state().windows().launcher_offer);
 }

@@ -9,7 +9,7 @@
 use egui::{Context, ViewportBuilder, ViewportId};
 
 use crate::theme;
-use crate::ui::place;
+use crate::ui::place::Placement;
 
 /// What the bar wants explained this frame.
 #[derive(Clone, Debug, PartialEq)]
@@ -28,14 +28,17 @@ impl Hint {
     }
 }
 
-const WIDTH: f32 = 320.0;
+/// Narrower than the bar in either of its widths, so a hint on a bar flush against the
+/// right screen edge sticks out no further than the bar already does — the same reasoning
+/// that lets the placement keep the bar's own left edge without clamping.
+const WIDTH: f32 = 280.0;
 const TEXT_SIZE: f32 = 15.0;
 const LINE_HEIGHT: f32 = 20.0;
 const PADDING: f32 = 10.0;
 /// The side of the cat, which is only drawn while a hold is running.
 const CAT: f32 = 56.0;
 /// Roughly how many characters fit on a line at [`TEXT_SIZE`] in [`WIDTH`].
-const CHARS_PER_LINE: usize = 44;
+const CHARS_PER_LINE: usize = 38;
 
 /// How tall the window has to be. Estimated rather than measured: the size has to be known
 /// before the window exists, and a line too many costs nothing but a little empty space.
@@ -96,25 +99,16 @@ fn draw_cat(ui: &mut egui::Ui, progress: f32) {
     );
 }
 
-/// Shows the hint next to the bar.
-///
-/// `bar` is where the bar sits, which is unknown on Wayland; the compositor places the
-/// window there instead.
-pub fn show(ctx: &Context, hint: &Hint, bar: Option<(f32, f32)>, monitor: Option<egui::Vec2>) {
+/// Shows the hint next to the bar. On Wayland the placement is unknowable and the
+/// compositor decides.
+pub fn show(ctx: &Context, hint: &Hint, placement: &Placement) {
     // Where viewports cannot be separate windows — the test harness, the web backend —
     // this one would be drawn on top of the bar and swallow the very click it is
     // describing. A hint that covers the control it explains is worse than no hint.
     if ctx.embed_viewports() {
         return;
     }
-    let wanted = wanted_height(hint);
-    let (position, height) = match bar {
-        Some(bar) => {
-            let (position, height) = place::near_bar(bar, monitor, WIDTH, wanted);
-            (Some(position), height)
-        }
-        None => (None, wanted),
-    };
+    let (position, height) = placement.near_bar(wanted_height(hint));
 
     let mut builder = ViewportBuilder::default()
         .with_title("WipTracker hint")

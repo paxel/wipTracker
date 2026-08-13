@@ -10,7 +10,7 @@
 use egui::{Align, Context, Layout, RichText, ViewportBuilder, ViewportId};
 
 use crate::theme;
-use crate::ui::place;
+use crate::ui::place::Placement;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MenuAction {
@@ -28,6 +28,8 @@ pub enum MenuAction {
     OpenRevive,
     ToggleDuration,
     ToggleDecorations,
+    /// Mute or unmute the repeating day reminder, for today only.
+    ToggleNag,
 }
 
 pub struct MenuOutcome {
@@ -45,15 +47,18 @@ pub struct MenuContext<'a> {
     pub paused: bool,
     pub show_duration: bool,
     pub decorated: bool,
+    /// Whether a day timer is set at all; without one the reminder entry means nothing.
+    pub day_timer_set: bool,
+    /// Whether the repeating day reminder is muted for today.
+    pub nag_muted: bool,
     /// A short message shown at the bottom, such as "restart to apply".
     pub notice: Option<&'a str>,
     /// A standing message about the platform, shown under the notice. Unlike `notice` it
     /// does not go away, because the shortcoming it describes does not either.
     pub platform_notice: Option<&'a str>,
-    /// Where the bar sits. Unknown on Wayland, where the compositor places windows.
-    pub bar: Option<(f32, f32)>,
-    /// How big the monitor the bar is on is, when the platform says.
-    pub monitor: Option<egui::Vec2>,
+    /// Where the bar's window sits and how big its monitor is. Empty on Wayland, where
+    /// the compositor places windows.
+    pub placement: Placement,
     /// Whether the menu already held the focus, which is what makes "clicking somewhere
     /// else closes the menu" safe: a window that never had the focus is still opening.
     pub was_focused: bool,
@@ -106,6 +111,11 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "end break"
     } else {
         "finish"
+    };
+    let nag_label = if context.nag_muted {
+        "unmute day reminder"
+    } else {
+        "mute day reminder"
     };
 
     vec![
@@ -179,6 +189,13 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             true,
             "Show or hide the running clock on the bar",
         ),
+        item(
+            nag_label,
+            MenuAction::ToggleNag,
+            context.day_timer_set,
+            "Once the day's timer is reached, WipTracker repeats its noise every ten \
+             minutes. Muting lasts until midnight — tomorrow it reminds again.",
+        ),
         Row::Item(Item {
             label: frame_label.to_owned(),
             action: MenuAction::ToggleDecorations,
@@ -207,13 +224,7 @@ pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
     let notices =
         usize::from(context.notice.is_some()) + usize::from(context.platform_notice.is_some());
     let wanted = wanted_height(&rows, notices);
-    let (position, height) = match context.bar {
-        Some(bar) => {
-            let (position, height) = place::near_bar(bar, context.monitor, MENU_WIDTH, wanted);
-            (Some(position), height)
-        }
-        None => (None, wanted),
-    };
+    let (position, height) = context.placement.near_bar(wanted);
 
     let mut action = MenuAction::None;
     let mut keep_open = true;

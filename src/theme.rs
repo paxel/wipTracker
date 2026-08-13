@@ -42,6 +42,8 @@ pub const TEXT: Color32 = Color32::from_rgb(0xE6, 0xE6, 0xE6);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(0x9A, 0xA3, 0xB2);
 /// The clock turns this colour once a task is past its daily timer.
 pub const OVER_LIMIT: Color32 = Color32::from_rgb(0xE0, 0xB0, 0x5A);
+/// The clock turns this colour once the whole day is past its timer. Outranks the amber.
+pub const DAY_OVER: Color32 = Color32::from_rgb(0xE8, 0x6A, 0x6A);
 /// The background of a text field, such as the rename editor.
 pub const FIELD: Color32 = Color32::from_rgb(0x12, 0x16, 0x1C);
 /// A resting button in the menu and the report windows.

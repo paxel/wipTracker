@@ -34,8 +34,14 @@ is 32 pixels tall, and a tooltip cannot be drawn outside the window it belongs t
 Download the archive for your platform from the
 [latest release](https://github.com/paxel/wipTracker/releases/latest).
 
-**Linux** — `brew install paxel/tap/wiptracker` works here too and needs nothing further.
-Otherwise install the `.deb`, which registers the icon and the desktop entry:
+**Linux** — `brew install paxel/tap/wiptracker` works here too. No desktop reads
+Homebrew's directories, so on the first start WipTracker notices it is missing from the
+application menu and offers to add itself — one click, into your own `~/.local/share`.
+The same is available as `wiptracker --install-launcher`, and `--remove-launcher` takes
+it out again; after an uninstall the entry hides on its own, because it names the binary
+in `TryExec` and menus drop entries whose binary is gone.
+
+Or install the `.deb`, which registers the icon and the desktop entry system-wide:
 
 ```sh
 sudo dpkg -i wiptracker_*_amd64.deb
@@ -128,6 +134,12 @@ and a default for new ones. Click a row, pick a duration, and WipTracker beeps o
 that task has been worked on that long today — and the clock on the bar turns amber for the
 rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
 default applies to every task created afterwards.
+
+**Set a limit for the whole day.** The same window's first row, _the whole day_, counts
+every task together — breaks not counted. Reaching it plays a distinct noise and turns the
+bar clock red for the rest of the day, outranking the amber. The alarm then repeats every
+ten minutes until menu → _mute day reminder_ silences it; the muting lasts until midnight,
+so tomorrow it reminds again on its own. The end-day report shows the count behind it.
 
 **Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.

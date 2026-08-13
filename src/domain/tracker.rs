@@ -37,6 +37,8 @@ pub struct Tracker {
     next_number: u64,
     /// The daily timer every new task starts with. Zero means no alarm.
     default_timer: Duration,
+    /// The timer for the whole day's work, pause excluded. Zero means no alarm.
+    day_timer: Duration,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
 }
@@ -53,6 +55,7 @@ impl Tracker {
             next_id: PAUSE_ID + 1,
             next_number: 1,
             default_timer: Duration::ZERO,
+            day_timer: Duration::ZERO,
             active_since: now,
         }
     }
@@ -87,6 +90,7 @@ impl Tracker {
             history: snapshot.history.clone(),
             next_number: snapshot.next_number.max(1),
             default_timer: snapshot.default_timer,
+            day_timer: snapshot.day_timer,
             active_since: resume_from,
         };
         tracker
@@ -117,10 +121,13 @@ impl Tracker {
             history: self.history.clone(),
             next_number: self.next_number,
             default_timer: self.default_timer,
+            day_timer: self.day_timer,
             last_seen: Some(self.active_since),
             show_duration,
             decorated,
             window_pos,
+            // An app preference, not the tracker's: the caller sets it on the way out.
+            launcher_offer_dismissed: false,
         }
     }
 
@@ -321,6 +328,67 @@ impl Tracker {
             .ok_or(TrackerError::UnknownTask(id))?;
         task.timer = timer;
         Ok(())
+    }
+
+    /// How long was worked on `day`, the pause task excluded.
+    ///
+    /// This is the day counter: breaks do not count, and neither does time when the app
+    /// was closed. It is not the wall-clock span of the day — that is what the day
+    /// record's start and end are for.
+    pub fn worked_on(&self, day: NaiveDate) -> Duration {
+        self.history.get(&day).map_or(Duration::ZERO, |record| {
+            record.total() - record.duration_of(PAUSE_ID)
+        })
+    }
+
+    pub fn day_timer(&self) -> Duration {
+        self.day_timer
+    }
+
+    /// Sets the timer for the whole day's work. Zero switches the alarm off.
+    pub fn set_day_timer(&mut self, timer: Duration) {
+        self.day_timer = timer;
+    }
+
+    /// Whether today's work has reached the day timer.
+    pub fn day_over(&self, day: NaiveDate) -> bool {
+        !self.day_timer.is_zero() && self.worked_on(day) >= self.day_timer
+    }
+
+    /// How long the reminder waits before sounding again, while it is not muted.
+    pub const NAG_INTERVAL: TimeDelta = TimeDelta::minutes(10);
+
+    /// Whether the day alarm should sound now. Reported once when the timer is reached,
+    /// and then, as long as the reminder is not muted, once every [`Self::NAG_INTERVAL`].
+    ///
+    /// Call after [`Self::accrue`]; the caller is expected to make the noise.
+    pub fn take_due_day_alarm(&mut self, now: DateTime<Local>) -> bool {
+        if !self.day_over(now.date_naive()) {
+            return false;
+        }
+        let Some(record) = self.history.get_mut(&now.date_naive()) else {
+            return false;
+        };
+        let due = match record.day_alarmed {
+            None => true,
+            Some(last) => !record.nag_muted && now - last >= Self::NAG_INTERVAL,
+        };
+        if due {
+            record.day_alarmed = Some(now);
+        }
+        due
+    }
+
+    /// Whether the repeating day reminder is muted for `day`. Tomorrow starts unmuted.
+    pub fn nag_muted(&self, day: NaiveDate) -> bool {
+        self.history
+            .get(&day)
+            .is_some_and(|record| record.nag_muted)
+    }
+
+    /// Mutes or unmutes the repeating day reminder, for this day only.
+    pub fn set_nag_muted(&mut self, day: NaiveDate, muted: bool) {
+        self.history.entry(day).or_default().nag_muted = muted;
     }
 
     /// The tasks whose daily timer has just been reached, each reported once per day.
@@ -723,7 +791,9 @@ mod tests {
             history: BTreeMap::new(),
             next_number: 9,
             default_timer: Duration::ZERO,
+            day_timer: Duration::ZERO,
             last_seen: None,
+            launcher_offer_dismissed: false,
             show_duration: true,
             decorated: None,
             window_pos: None,
@@ -871,5 +941,90 @@ mod tests {
         let from = at(1, 9);
         let to = at(1, 10);
         assert_eq!(split_by_day(from, to), vec![(from.date_naive(), from, to)]);
+    }
+
+    /// The day counter is work only: an hour on a task and an hour of pause is one hour.
+    #[test]
+    fn the_day_counter_excludes_the_pause() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        tracker.select(PAUSE_ID, at(1, 10)).expect("pause");
+        tracker.accrue(at(1, 11));
+
+        assert_eq!(tracker.worked_on(at(1, 9).date_naive()), hours(1));
+    }
+
+    #[test]
+    fn the_day_alarm_sounds_once_when_the_day_timer_is_reached() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_day_timer(hours(2));
+        tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        assert!(
+            !tracker.take_due_day_alarm(at(1, 10)),
+            "one hour is not two"
+        );
+
+        tracker.accrue(at(1, 11));
+        assert!(tracker.take_due_day_alarm(at(1, 11)));
+        assert!(
+            !tracker.take_due_day_alarm(at(1, 11)),
+            "the same moment does not sound twice"
+        );
+        assert!(tracker.day_over(at(1, 11).date_naive()));
+    }
+
+    /// Once over, the reminder repeats every ten minutes until muted — and muting is only
+    /// for that day.
+    #[test]
+    fn the_day_alarm_nags_every_ten_minutes_until_muted() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_day_timer(hours(1));
+        tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        assert!(tracker.take_due_day_alarm(at(1, 10)));
+
+        let five_later = at(1, 10) + TimeDelta::minutes(5);
+        tracker.accrue(five_later);
+        assert!(
+            !tracker.take_due_day_alarm(five_later),
+            "five minutes is inside the interval"
+        );
+
+        let ten_later = at(1, 10) + TimeDelta::minutes(10);
+        tracker.accrue(ten_later);
+        assert!(tracker.take_due_day_alarm(ten_later), "ten minutes is due");
+
+        tracker.set_nag_muted(ten_later.date_naive(), true);
+        let twenty_later = at(1, 10) + TimeDelta::minutes(20);
+        tracker.accrue(twenty_later);
+        assert!(
+            !tracker.take_due_day_alarm(twenty_later),
+            "muted for the day"
+        );
+
+        // The next day starts unmuted: a fresh record carries no mute.
+        assert!(!tracker.nag_muted(at(2, 9).date_naive()));
+    }
+
+    /// Without a day timer there is never a day alarm, whatever was worked.
+    #[test]
+    fn no_day_timer_means_no_day_alarm() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 19));
+        assert!(!tracker.take_due_day_alarm(at(1, 19)));
+        assert!(!tracker.day_over(at(1, 19).date_naive()));
+    }
+
+    /// The day timer survives a save and a restart.
+    #[test]
+    fn the_day_timer_is_persisted() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_day_timer(hours(8));
+        let snapshot = tracker.snapshot(true, None, None);
+        let restored = Tracker::from_snapshot(&snapshot, at(1, 10));
+        assert_eq!(restored.day_timer(), hours(8));
     }
 }

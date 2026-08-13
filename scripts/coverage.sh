@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# The coverage ratchet: line coverage may only go up.
+#
+# Runs cargo-tarpaulin and compares the result against the floor in .coverage-floor at
+# the repo root. Below the floor the gate fails — some change shipped without tests.
+# Above it, the floor is raised to the new value (commit the file), which is what makes
+# the ratchet a ratchet; with --check the floor is only verified, never rewritten, which
+# is what CI runs.
+#
+# Usage:
+#   scripts/coverage.sh          run, fail below the floor, raise it when above
+#   scripts/coverage.sh --check  run, fail below the floor, never write (CI)
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+FLOOR_FILE="$ROOT/.coverage-floor"
+
+check_only=false
+[ "${1:-}" = "--check" ] && check_only=true
+
+floor=$(tr -d "[:space:]" < "$FLOOR_FILE")
+
+# The llvm engine, not the default ptrace one: only llvm collects coverage from the
+# binary the CLI tests spawn, via the inherited profile environment. Tarpaulin's last
+# line reads like "74.32% coverage, 1234/1660 lines covered".
+coverage=$(cd "$ROOT" && cargo tarpaulin --engine llvm --all-features --workspace \
+  --skip-clean --out Stdout 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
+
+if [ -z "$coverage" ]; then
+  echo "coverage: tarpaulin produced no percentage" >&2
+  exit 1
+fi
+
+below=$(awk -v c="$coverage" -v f="$floor" 'BEGIN { print (c < f) ? 1 : 0 }')
+if [ "$below" = 1 ]; then
+  echo "coverage: $coverage% is below the floor of $floor% — the ratchet only goes up" >&2
+  exit 1
+fi
+
+above=$(awk -v c="$coverage" -v f="$floor" 'BEGIN { print (c > f) ? 1 : 0 }')
+if [ "$above" = 1 ] && [ "$check_only" = false ]; then
+  echo "$coverage" > "$FLOOR_FILE"
+  echo "coverage: $coverage% — floor raised from $floor%, commit .coverage-floor"
+else
+  echo "coverage: $coverage% (floor $floor%)"
+fi

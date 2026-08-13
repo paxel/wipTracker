@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use wiptracker::app::{Backend, WAYLAND_NOTICE, WipTracker, choose_backend, prefers_decorations};
+use wiptracker::app::{
+    Backend, WAYLAND_NOTICE, WipTracker, backend_to_force, choose_backend, prefers_decorations,
+};
 use wiptracker::domain::ports::Store as _;
+use wiptracker::infrastructure::launcher;
 use wiptracker::infrastructure::redb_store::RedbStore;
 use wiptracker::theme;
 
@@ -10,10 +13,18 @@ const USAGE: &str = "\
 WipTracker — a one-line always-on-top bar showing the task you are focused on.
 
 Usage: wiptracker [--version] [--help] [--reset-position]
+                  [--install-launcher] [--remove-launcher]
 
-  --reset-position  Open where the window manager wants to, and forget the stored
-                    position. Use it when the bar is remembered somewhere you cannot see
-                    it — a monitor that has been unplugged, or a layout that has changed.
+  --reset-position    Open where the window manager wants to, and forget the stored
+                      position. Use it when the bar is remembered somewhere you cannot
+                      see it — a monitor that has been unplugged, or a layout that has
+                      changed.
+  --install-launcher  Write the launcher entry and icons into ~/.local/share, so every
+                      application menu can find WipTracker, and exit. The app also
+                      offers this on its own when no menu can see it.
+  --remove-launcher   Delete that entry, the icons and an autostart copy, and exit.
+                      After an uninstall the entry hides itself anyway: it names the
+                      binary in TryExec, and menus drop entries whose binary is gone.
 
 Everything else happens on the bar itself. See https://github.com/paxel/wipTracker for
 what the clicks do.";
@@ -66,6 +77,35 @@ fn main() -> eframe::Result<()> {
                 return Ok(());
             }
             "--reset-position" => reset_position = true,
+            "--install-launcher" => {
+                let Some(data_home) = launcher::data_home() else {
+                    eprintln!("wiptracker: no home directory to install into");
+                    std::process::exit(1);
+                };
+                let exe = std::env::current_exe().unwrap_or_default();
+                if let Err(error) = launcher::install_into(&data_home, &exe) {
+                    eprintln!("wiptracker: {error}");
+                    std::process::exit(1);
+                }
+                launcher::refresh_caches(&data_home);
+                println!("Added to the application menu.");
+                return Ok(());
+            }
+            "--remove-launcher" => {
+                let (Some(data_home), Some(config_home)) =
+                    (launcher::data_home(), launcher::config_home())
+                else {
+                    eprintln!("wiptracker: no home directory to remove from");
+                    std::process::exit(1);
+                };
+                if let Err(error) = launcher::remove_from(&data_home, &config_home) {
+                    eprintln!("wiptracker: {error}");
+                    std::process::exit(1);
+                }
+                launcher::refresh_caches(&data_home);
+                println!("Removed from the application menu.");
+                return Ok(());
+            }
             other => {
                 eprintln!("wiptracker: unknown argument {other:?}\n\n{USAGE}");
                 std::process::exit(2);
@@ -120,10 +160,8 @@ fn main() -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
-    // Only worth asking for on a Wayland session. Everywhere else winit's own choice is
-    // already the right one, and forcing a backend can only go wrong.
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        ask_for_backend(&mut options, backend);
+    if let Some(forced) = backend_to_force() {
+        ask_for_backend(&mut options, forced);
     }
 
     eframe::run_native(

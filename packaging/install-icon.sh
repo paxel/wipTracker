@@ -44,20 +44,24 @@ config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 desktop_dst="$data_home/applications/wiptracker.desktop"
 autostart_dst="$config_home/autostart/wiptracker.desktop"
 
-# Every size the generator writes, so a menu can take the one it draws at instead of
-# downsampling the 512 pixel version and smearing it.
+# Every size the generator wrote, read off the files themselves so the list lives only
+# in make_icon.py. The plain icon.png is the 512 pixel one; 1024 is the macOS bundle's
+# and no Linux menu asks for it.
 mkdir -p "$(dirname "$desktop_dst")"
-for size in 32 48 64 128 256 512; do
-  case $size in
-    512) source=$icons/icon.png ;;
-    *) source=$icons/icon-$size.png ;;
-  esac
-  [ -f "$source" ] || continue
-  target="$data_home/icons/hicolor/${size}x${size}/apps/wiptracker.png"
+install_icon() {
+  target="$data_home/icons/hicolor/${1}x${1}/apps/wiptracker.png"
   mkdir -p "$(dirname "$target")"
-  cp "$source" "$target"
+  cp "$2" "$target"
   echo "  $target"
+}
+for source in "$icons"/icon-*.png; do
+  [ -f "$source" ] || continue
+  size=$(basename "$source" .png)
+  size=${size#icon-}
+  [ "$size" = 1024 ] && continue
+  install_icon "$size" "$source"
 done
+[ -f "$icons/icon.png" ] && install_icon 512 "$icons/icon.png"
 cp "$desktop_src" "$desktop_dst"
 
 case $autostart in

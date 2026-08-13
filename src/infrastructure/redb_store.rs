@@ -20,6 +20,8 @@ const KEY_STACK: &str = "stack";
 const KEY_HISTORY: &str = "history";
 const KEY_NEXT_NUMBER: &str = "next_number";
 const KEY_DEFAULT_TIMER: &str = "default_timer";
+const KEY_DAY_TIMER: &str = "day_timer";
+const KEY_LAUNCHER_DISMISSED: &str = "launcher_offer_dismissed";
 const KEY_LAST_SEEN: &str = "last_seen";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
@@ -108,6 +110,11 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .unwrap_or_default();
+        let day_timer = parse(read_meta(KEY_DAY_TIMER)?)?
+            .map(serde_json::from_value::<std::time::Duration>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .unwrap_or_default();
         let last_seen = parse(read_meta(KEY_LAST_SEEN)?)?
             .map(serde_json::from_value::<Option<chrono::DateTime<chrono::Local>>>)
             .transpose()
@@ -121,6 +128,9 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .flatten();
+        let launcher_offer_dismissed = parse(read_meta(KEY_LAUNCHER_DISMISSED)?)?
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let window_pos = parse(read_meta(KEY_WINDOW_POS)?)?
             .map(serde_json::from_value::<Option<(f32, f32)>>)
             .transpose()
@@ -133,10 +143,12 @@ impl Store for RedbStore {
             history,
             next_number,
             default_timer,
+            day_timer,
             last_seen,
             show_duration,
             decorated,
             window_pos,
+            launcher_offer_dismissed,
         }))
     }
 
@@ -177,7 +189,12 @@ impl Store for RedbStore {
                 KEY_DEFAULT_TIMER,
                 &serde_json::json!(snapshot.default_timer),
             )?;
+            put(KEY_DAY_TIMER, &serde_json::json!(snapshot.day_timer))?;
             put(KEY_LAST_SEEN, &serde_json::json!(snapshot.last_seen))?;
+            put(
+                KEY_LAUNCHER_DISMISSED,
+                &serde_json::json!(snapshot.launcher_offer_dismissed),
+            )?;
             put(
                 KEY_SHOW_DURATION,
                 &serde_json::json!(snapshot.show_duration),
@@ -258,7 +275,9 @@ mod tests {
             history,
             next_number: 2,
             default_timer: Duration::from_secs(3600),
+            day_timer: Duration::from_secs(8 * 3600),
             last_seen: Some(created),
+            launcher_offer_dismissed: true,
             show_duration: false,
             decorated: Some(true),
             window_pos: Some((120.0, 40.0)),

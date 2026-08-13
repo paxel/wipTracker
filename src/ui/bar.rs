@@ -43,8 +43,19 @@ pub struct Clock<'a> {
     pub today: &'a str,
     /// The hover text: the all-time total, and the timer if there is one.
     pub tooltip: &'a str,
-    /// Whether today's time has passed the task's daily timer.
-    pub over_limit: bool,
+    /// Whether a timer has been passed, and which kind — the day outranks a task.
+    pub over: Over,
+}
+
+/// Which timer the clock's colour reports.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Over {
+    #[default]
+    None,
+    /// The focused task has passed its daily timer: amber.
+    Task,
+    /// The whole day has passed its timer: red, for the rest of the day.
+    Day,
 }
 
 /// How the bar is drawn this frame.
@@ -67,8 +78,15 @@ pub struct BarState<'a> {
 /// manual path keeps moving the window until the next click. Desktops that ignore the
 /// gesture are Wayland compositors, and those already get a window frame by default, which
 /// is how the bar is dragged there.
+/// The drag begins on the press itself, the way a title bar moves a window — not on
+/// `drag_started`. egui only calls a press a drag once it is sure it is not a click:
+/// six pixels of travel, or outlasting `max_click_duration`. That duration is lifted for
+/// the holds (see `install_theme`), which closed the time-based path — and the slow,
+/// short-travel press of a touchpad or trackpad is exactly what that path used to catch,
+/// so touchpads could not drag the bar at all. The grip means nothing but "move", so
+/// there is no click to tell apart and nothing to wait for.
 fn drag_window(ui: &Ui, response: &Response) {
-    if response.drag_started() {
+    if response.is_pointer_button_down_on() && ui.input(|input| input.pointer.any_pressed()) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
 }
@@ -246,10 +264,10 @@ fn show_inner(
                 }
 
                 if let Some(clock) = state.clock {
-                    let color = if clock.over_limit {
-                        theme::OVER_LIMIT
-                    } else {
-                        theme::TEXT_DIM
+                    let color = match clock.over {
+                        Over::Day => theme::DAY_OVER,
+                        Over::Task => theme::OVER_LIMIT,
+                        Over::None => theme::TEXT_DIM,
                     };
                     let response = ui.add(
                         Label::new(RichText::new(clock.today).color(color).monospace())

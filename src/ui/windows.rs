@@ -22,6 +22,8 @@ pub const REVIVE_DAYS: i64 = 30;
 #[derive(Default)]
 pub struct OpenWindows {
     pub stack: bool,
+    /// The one-time offer to add WipTracker to the application menu.
+    pub launcher_offer: bool,
     pub timer: bool,
     pub groom: bool,
     pub end_day: bool,
@@ -34,13 +36,74 @@ pub struct OpenWindows {
     week_input: String,
     /// Which row of the timer window has its duration picker open. `None` is the default
     /// timer's row.
-    timer_editing: Option<Option<TaskId>>,
+    timer_editing: Option<TimerTarget>,
     /// Whether each window is showing its "copied to clipboard" confirmation.
     end_day_copied: bool,
     week_copied: bool,
     /// Where each window was placed when it opened. Recomputing this every frame would
     /// re-issue `with_position`, which drags an open report window along with the bar.
     placed: BTreeMap<&'static str, egui::Pos2>,
+}
+
+/// What the user decided in the launcher offer window.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LauncherChoice {
+    #[default]
+    None,
+    /// Write the entry and the icons into the user's own XDG directories.
+    Install,
+    /// Never offer again.
+    Dismiss,
+}
+
+/// The one-time offer to put WipTracker into the application menu.
+///
+/// Closing the window without choosing leaves the offer for the next start; only the
+/// explicit "don't ask again" is remembered.
+pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
+    let mut placed = std::mem::take(&mut open.placed);
+    let mut choice = LauncherChoice::None;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "launcher_offer",
+        "WipTracker — application menu",
+        [420.0, 230.0],
+        &mut placed,
+        &mut still_open,
+        |ui| {
+            ui.heading("Add WipTracker to the application menu?");
+            ui.add_space(4.0);
+            ui.label(
+                "No menu on this machine can see WipTracker right now. Adding it writes \
+                 a launcher entry and the icons into your own ~/.local/share, so it can \
+                 be found, pinned and started like any other application.",
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "Uninstalling stays clean: the entry hides itself as soon as the \
+                     binary is gone, and `wiptracker --remove-launcher` deletes it.",
+                )
+                .color(theme::TEXT_DIM)
+                .small(),
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Add to the menu").clicked() {
+                    choice = LauncherChoice::Install;
+                }
+                if ui.button("Don't ask again").clicked() {
+                    choice = LauncherChoice::Dismiss;
+                }
+            });
+        },
+    );
+
+    open.placed = placed;
+    open.launcher_offer = still_open && choice == LauncherChoice::None;
+    choice
 }
 
 /// What the windows did this frame.
@@ -272,22 +335,42 @@ fn stack(
     false
 }
 
-/// The timer window: one row per open task plus the default that new tasks inherit.
+/// What one row of the timer window sets.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TimerTarget {
+    /// The whole day's work, pause excluded.
+    Day,
+    /// The timer new tasks inherit.
+    Default,
+    Task(TaskId),
+}
+
+/// The timer window: the whole day, the default new tasks inherit, and one row per task.
 fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
     let mut placed = std::mem::take(&mut open.placed);
-    let default_timer = tracker.default_timer();
-    let rows: Vec<(Option<TaskId>, String, Duration)> =
-        std::iter::once((None, "default for new tasks".to_owned(), default_timer))
-            .chain(
-                tracker
-                    .open_tasks_top_first()
-                    .iter()
-                    .map(|task| (Some(task.id), task.name.clone(), task.timer)),
-            )
-            .collect();
+    let rows: Vec<(TimerTarget, String, Duration)> = [
+        (
+            TimerTarget::Day,
+            "the whole day".to_owned(),
+            tracker.day_timer(),
+        ),
+        (
+            TimerTarget::Default,
+            "default for new tasks".to_owned(),
+            tracker.default_timer(),
+        ),
+    ]
+    .into_iter()
+    .chain(
+        tracker
+            .open_tasks_top_first()
+            .iter()
+            .map(|task| (TimerTarget::Task(task.id), task.name.clone(), task.timer)),
+    )
+    .collect();
 
     let mut editing = open.timer_editing;
-    let mut chosen: Option<(Option<TaskId>, Duration)> = None;
+    let mut chosen: Option<(TimerTarget, Duration)> = None;
     let mut still_open = true;
 
     window(
@@ -302,7 +385,9 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
             ui.label(
                 RichText::new(
                     "When a task has been worked on this long today, WipTracker beeps once. \
-                     Zero means no alarm.",
+                     The whole day's timer counts every task together, breaks excluded, \
+                     sounds its own noise, and turns the bar clock red. Zero means no \
+                     alarm.",
                 )
                 .color(theme::TEXT_DIM)
                 .small(),
@@ -353,12 +438,13 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
     open.placed = placed;
     open.timer = still_open;
     open.timer_editing = editing;
-    if let Some((id, duration)) = chosen {
-        match id {
-            Some(id) => {
+    if let Some((target, duration)) = chosen {
+        match target {
+            TimerTarget::Day => tracker.set_day_timer(duration),
+            TimerTarget::Default => tracker.set_default_timer(duration),
+            TimerTarget::Task(id) => {
                 let _ = tracker.set_timer(id, duration);
             }
-            None => tracker.set_default_timer(duration),
         }
         open.timer_editing = None;
         return true;
@@ -473,6 +559,23 @@ fn end_day(
                 |time| time.format("%H:%M").to_string(),
             );
             ui.label(format!("Day started {started}, last activity {ended}"));
+            let worked = tracker.worked_on(today);
+            let day_timer = tracker.day_timer();
+            let worked_line = if day_timer.is_zero() {
+                format!("Worked {} (breaks not counted)", format::coarse(worked))
+            } else {
+                format!(
+                    "Worked {} of {} (breaks not counted)",
+                    format::coarse(worked),
+                    format::coarse(day_timer)
+                )
+            };
+            let color = if tracker.day_over(today) {
+                theme::DAY_OVER
+            } else {
+                theme::TEXT
+            };
+            ui.label(RichText::new(worked_line).color(color));
             if record.closed {
                 ui.label(RichText::new("This day is closed.").color(theme::TEXT_DIM));
             }

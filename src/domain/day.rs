@@ -23,6 +23,13 @@ pub struct DayRecord {
     /// Tasks whose timer already sounded today, so it sounds only once.
     #[serde(default)]
     pub alarmed: BTreeSet<TaskId>,
+    /// When the day alarm last sounded, driving both "once" and the ten-minute repeat.
+    #[serde(default)]
+    pub day_alarmed: Option<DateTime<Local>>,
+    /// Whether the repeating day reminder has been muted for this day. A fresh record —
+    /// tomorrow's — starts unmuted, which is what makes the reminder come back daily.
+    #[serde(default)]
+    pub nag_muted: bool,
 }
 
 impl DayRecord {

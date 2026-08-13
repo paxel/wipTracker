@@ -37,11 +37,25 @@ impl Beeper {
 impl Alarm for Beeper {
     /// Returns immediately: the tones are played on a scratch thread.
     fn sound(&self) {
-        std::thread::spawn(play);
+        std::thread::spawn(|| play(TASK_TONES));
+    }
+
+    /// Returns immediately, like [`Self::sound`]. Three falling tones where the task
+    /// alarm rises — the day being over should not sound like one more task.
+    fn sound_day_over(&self) {
+        std::thread::spawn(|| play(DAY_TONES));
     }
 }
 
-fn play() {
+/// Frequency and length of each tone, in order.
+type Tones = &'static [(f32, u64)];
+
+/// Two short rising tones: one task's daily timer.
+const TASK_TONES: Tones = &[(880.0, 160), (1320.0, 220)];
+/// Three longer falling tones: the whole day's timer.
+const DAY_TONES: Tones = &[(1320.0, 220), (880.0, 220), (587.0, 380)];
+
+fn play(tones: Tones) {
     let (stream, handle) = match rodio::OutputStream::try_default() {
         Ok(output) => output,
         Err(error) => {
@@ -57,13 +71,13 @@ fn play() {
         }
     };
 
-    let beep = |frequency: f32, millis: u64| {
-        SineWave::new(frequency)
-            .take_duration(Duration::from_millis(millis))
-            .amplify(0.15)
-    };
-    sink.append(beep(880.0, 160));
-    sink.append(beep(1320.0, 220));
+    for (frequency, millis) in tones {
+        sink.append(
+            SineWave::new(*frequency)
+                .take_duration(Duration::from_millis(*millis))
+                .amplify(0.15),
+        );
+    }
     sink.sleep_until_end();
     drop(stream);
 }

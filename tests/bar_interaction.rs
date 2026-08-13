@@ -64,11 +64,20 @@ fn settle(harness: &mut Harness<'_, WipTracker>) {
 }
 
 fn pointer(harness: &mut Harness<'_, WipTracker>, pos: egui::Pos2, pressed: bool) {
+    button(harness, pos, egui::PointerButton::Primary, pressed);
+}
+
+fn button(
+    harness: &mut Harness<'_, WipTracker>,
+    pos: egui::Pos2,
+    which: egui::PointerButton,
+    pressed: bool,
+) {
     let events = &mut harness.input_mut().events;
     events.push(egui::Event::PointerMoved(pos));
     events.push(egui::Event::PointerButton {
         pos,
-        button: egui::PointerButton::Primary,
+        button: which,
         pressed,
         modifiers: egui::Modifiers::NONE,
     });
@@ -300,6 +309,38 @@ fn letting_go_of_the_name_early_renames_instead() {
         harness.state().is_renaming(),
         "a slow click is still a click"
     );
+}
+
+/// Only the left button holds: a long right- or middle-button press must not finish the
+/// task, and must not rename it either.
+#[test]
+fn holding_with_another_button_does_nothing() {
+    let mut tracker = Tracker::new(at(9));
+    let id = tracker.push_new_task(at(9));
+    tracker.rename(id, "write the report").expect("rename");
+
+    let mut harness = harness(tracker);
+    harness.run();
+
+    for which in [egui::PointerButton::Secondary, egui::PointerButton::Middle] {
+        button(&mut harness, name_center(), which, true);
+        harness.step();
+        for _ in 0..((HOLD_FINISH / STEP).ceil() as usize) {
+            harness.step();
+        }
+        button(&mut harness, name_center(), which, false);
+        settle(&mut harness);
+
+        assert_eq!(
+            harness.state().tracker().focused_name(),
+            "write the report",
+            "a {which:?}-button hold must not finish the task"
+        );
+        assert!(
+            !harness.state().is_renaming(),
+            "a {which:?}-button release must not rename either"
+        );
+    }
 }
 
 /// The whole name column is the target, not just the pixels the text happens to cover.

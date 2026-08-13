@@ -64,6 +64,19 @@ pub struct Press {
     pub progress: f32,
 }
 
+/// One press being watched across frames, kept in `ui.data` under the widget's id.
+#[derive(Clone, Copy)]
+struct PressState {
+    /// When the button went down.
+    started: f64,
+    /// Whether the hold has already fired, which is what consumes the click.
+    fired: bool,
+    /// When this was last written. Catches a widget that vanished mid-press — the bar
+    /// swaps the name for the rename editor, for one — and left its state behind:
+    /// without it, the next press on that id would start out already elapsed.
+    seen: f64,
+}
+
 /// Watches a press so that a click and a hold can share one widget.
 ///
 /// The hold consumes the click: once it completes, letting go does nothing more. Sliding
@@ -81,13 +94,9 @@ pub struct Press {
 pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Press {
     let key = response.id.with("press");
     let now = ui.input(|input| input.time);
-    // Started, whether the hold has already fired, and when this was last written. The
-    // last of those catches a widget that vanished mid-press — the bar swaps the name for
-    // the rename editor, for one — and left its state behind: without it, the next press
-    // on that id would start out already elapsed.
-    let previous: Option<(f64, bool, f64)> = ui
+    let previous: Option<PressState> = ui
         .data(|data| data.get_temp(key))
-        .filter(|(_, _, seen): &(f64, bool, f64)| now - seen < STALE_PRESS);
+        .filter(|state: &PressState| now - state.seen < STALE_PRESS);
     let mut press = Press::default();
 
     // Deliberately the raw pointer position rather than `contains_pointer`: the widget's
@@ -97,24 +106,33 @@ pub fn track_press(ui: &Ui, response: &Response, hold: f32, armed: bool) -> Pres
     let over = ui
         .input(|input| input.pointer.interact_pos())
         .is_some_and(|pos| response.rect.contains(pos));
+    // The left button only, matching `clicked()`. `is_pointer_button_down_on` is true for
+    // any button, and without this a two-second press of the right or middle button on the
+    // task name would have finished the task.
+    let primary = ui.input(|input| input.pointer.primary_down());
 
-    if response.is_pointer_button_down_on() && over {
-        let (started, mut fired, _) = previous.unwrap_or((now, false, now));
+    if response.is_pointer_button_down_on() && over && primary {
+        let mut state = previous.unwrap_or(PressState {
+            started: now,
+            fired: false,
+            seen: now,
+        });
         if armed {
-            press.progress = (((now - started) as f32) / hold).clamp(0.0, 1.0);
-            if press.progress >= 1.0 && !fired {
-                fired = true;
+            press.progress = (((now - state.started) as f32) / hold).clamp(0.0, 1.0);
+            if press.progress >= 1.0 && !state.fired {
+                state.fired = true;
                 press.long_pressed = true;
             }
         }
-        ui.data_mut(|data| data.insert_temp(key, (started, fired, now)));
+        state.seen = now;
+        ui.data_mut(|data| data.insert_temp(key, state));
         // The app asks for a repaint once a second, which is far too slow for a sweep.
         ui.ctx().request_repaint();
     } else {
         if previous.is_some() {
-            ui.data_mut(|data| data.remove::<(f64, bool, f64)>(key));
+            ui.data_mut(|data| data.remove::<PressState>(key));
         }
-        press.clicked = response.clicked() && !previous.is_some_and(|(_, fired, _)| fired);
+        press.clicked = response.clicked() && !previous.is_some_and(|state| state.fired);
     }
     press
 }

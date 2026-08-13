@@ -8,6 +8,7 @@ use crate::domain::ports::{Alarm, Snapshot, Store, StoreError};
 use crate::domain::task::{PAUSE_ID, TaskId};
 use crate::domain::tracker::Tracker;
 use crate::infrastructure::beeper::Beeper;
+use crate::infrastructure::launcher;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
 use crate::ui::format;
@@ -88,6 +89,16 @@ fn backend_for(wayland: bool, x11_reachable: bool, forced: Option<&str>) -> Back
     }
 }
 
+/// The backend to ask winit for, or `None` where winit's own choice is already right.
+///
+/// Only a Wayland session needs the choice made for it: winit would pick Wayland even
+/// with XWayland running. Everywhere else forcing a backend can only go wrong.
+pub fn backend_to_force() -> Option<Backend> {
+    std::env::var_os("WAYLAND_DISPLAY")
+        .is_some()
+        .then(choose_backend)
+}
+
 /// What to tell the user when the app really is running on Wayland.
 pub const WAYLAND_NOTICE: &str = "Wayland cannot keep a window above the others, and XWayland — which can — is not \
      running. Use your compositor's own rule; see the README.";
@@ -153,7 +164,11 @@ pub struct WipTracker {
     fatal: Option<String>,
     dirty: bool,
     last_save: Instant,
+    /// The window's outer top-left, persisted so the bar reopens where it was.
     window_pos: Option<(f32, f32)>,
+    /// The whole outer rect, frame included — what the menu and the hint place against.
+    /// Not persisted; refreshed every frame.
+    window_rect: Option<egui::Rect>,
     menu_open: bool,
     menu_was_focused: bool,
     /// When the menu last closed because the focus went somewhere else. Clicking the
@@ -166,6 +181,12 @@ pub struct WipTracker {
     alarm: Option<Box<dyn Alarm>>,
     /// The tasks whose alarm sounded this session, kept for the tests to inspect.
     alarms_sounded: Vec<TaskId>,
+    /// How often the day alarm sounded this session, kept for the tests to inspect.
+    day_alarms_sounded: usize,
+    /// Whether the offer to add WipTracker to the application menu was declined for good.
+    launcher_offer_dismissed: bool,
+    /// Where the launcher entry would be installed. Settable so tests write to scratch.
+    launcher_data_home: Option<std::path::PathBuf>,
     rename: Option<Rename>,
     windows: OpenWindows,
 }
@@ -191,12 +212,18 @@ impl WipTracker {
                 app.show_duration = snapshot.show_duration;
                 app.decorated = snapshot.decorated;
                 app.window_pos = snapshot.window_pos;
+                app.launcher_offer_dismissed = snapshot.launcher_offer_dismissed;
                 app
             }
             None => Self::with_tracker(cc, Tracker::new(now)),
         };
         app.store = Some(store);
         app.alarm = Some(Box::new(Beeper::new()));
+        // Only Linux menus lose track of a binary outside the system prefixes; macOS has
+        // the bundle and Windows the Start-menu shortcut. Asked once, at most.
+        if cfg!(target_os = "linux") && !app.launcher_offer_dismissed && !launcher::is_visible() {
+            app.windows.launcher_offer = true;
+        }
         app
     }
 
@@ -224,12 +251,16 @@ impl WipTracker {
             dirty: false,
             last_save: Instant::now(),
             window_pos: None,
+            window_rect: None,
             menu_open: false,
             menu_was_focused: false,
             menu_dismissed_at: None,
             notice: None,
             alarm: None,
             alarms_sounded: Vec::new(),
+            day_alarms_sounded: 0,
+            launcher_offer_dismissed: false,
+            launcher_data_home: launcher::data_home(),
             rename: None,
             windows: OpenWindows::default(),
         }
@@ -280,6 +311,11 @@ impl WipTracker {
         &self.alarms_sounded
     }
 
+    /// How often the day alarm has sounded since the app started.
+    pub fn day_alarms_sounded(&self) -> usize {
+        self.day_alarms_sounded
+    }
+
     pub fn is_renaming(&self) -> bool {
         self.rename.is_some()
     }
@@ -296,9 +332,10 @@ impl WipTracker {
             self.dirty = false;
             return;
         };
-        let snapshot = self
-            .tracker
-            .snapshot(self.show_duration, self.decorated, self.window_pos);
+        let mut snapshot =
+            self.tracker
+                .snapshot(self.show_duration, self.decorated, self.window_pos);
+        snapshot.launcher_offer_dismissed = self.launcher_offer_dismissed;
         match store.save(&snapshot) {
             Ok(()) => {
                 self.dirty = false;
@@ -308,11 +345,12 @@ impl WipTracker {
         }
     }
 
-    /// Today's time on the focused task, what to say about it on hover, and whether it has
-    /// passed the task's daily timer.
-    fn clock_parts(&self, now: DateTime<Local>) -> Option<(String, String, bool)> {
+    /// Today's time on the focused task, what to say about it on hover, and which timer —
+    /// task or whole day — has been passed. The day outranks the task: red beats amber.
+    fn clock_parts(&self, now: DateTime<Local>) -> Option<(String, String, bar::Over)> {
         let task = self.tracker.focused()?;
-        let today = self.tracker.duration_on(task.id, now.date_naive());
+        let day = now.date_naive();
+        let today = self.tracker.duration_on(task.id, day);
         let mut tooltip = format!(
             "Today: {}\nAll time: {}",
             format::clock(today),
@@ -325,7 +363,23 @@ impl WipTracker {
                 tooltip.push_str(" — reached");
             }
         }
-        Some((format::clock(today), tooltip, over_limit))
+        let day_timer = self.tracker.day_timer();
+        if !day_timer.is_zero() {
+            tooltip.push_str(&format!(
+                "\nDay: {} of {}",
+                format::coarse(self.tracker.worked_on(day)),
+                format::coarse(day_timer)
+            ));
+        }
+        let over = if self.tracker.day_over(day) {
+            tooltip.push_str(" — the day is over");
+            bar::Over::Day
+        } else if over_limit {
+            bar::Over::Task
+        } else {
+            bar::Over::None
+        };
+        Some((format::clock(today), tooltip, over))
     }
 
     fn remember_window_pos(&mut self, ctx: &egui::Context) {
@@ -334,9 +388,31 @@ impl WipTracker {
         let Some(rect) = ctx.input(|i| i.viewport().outer_rect) else {
             return;
         };
+        self.window_rect = Some(rect);
         // Deliberately not marked dirty: a drag would otherwise commit a transaction per
         // frame. The periodic save and the save on exit pick the position up.
         self.window_pos = Some((rect.min.x, rect.min.y));
+    }
+
+    /// Writes the launcher entry and icons, and says how it went in the menu's notice.
+    fn install_launcher(&mut self) {
+        let Some(data_home) = self.launcher_data_home.clone() else {
+            self.notice = Some("No home directory to install into.".to_owned());
+            return;
+        };
+        let exe = std::env::current_exe().unwrap_or_default();
+        match launcher::install_into(&data_home, &exe) {
+            Ok(()) => {
+                launcher::refresh_caches(&data_home);
+                self.notice = Some("Added to the application menu.".to_owned());
+            }
+            Err(error) => self.notice = Some(format!("Could not add the entry: {error}")),
+        }
+    }
+
+    /// Points the installer somewhere else, so a test can watch it write.
+    pub fn set_launcher_data_home(&mut self, path: std::path::PathBuf) {
+        self.launcher_data_home = Some(path);
     }
 
     /// Begins renaming the focused task, as a right-click on its name does.
@@ -434,6 +510,12 @@ impl WipTracker {
                 });
                 self.dirty = true;
             }
+            MenuAction::ToggleNag => {
+                let day = now.date_naive();
+                let muted = self.tracker.nag_muted(day);
+                self.tracker.set_nag_muted(day, !muted);
+                self.dirty = true;
+            }
             MenuAction::OpenGroom => self.windows.groom = true,
             MenuAction::OpenEndDay => self.windows.end_day = true,
             MenuAction::OpenWeek => self.windows.week = true,
@@ -517,6 +599,13 @@ impl eframe::App for WipTracker {
             }
             self.dirty = true;
         }
+        if self.tracker.take_due_day_alarm(now) {
+            self.day_alarms_sounded += 1;
+            if let Some(alarm) = &self.alarm {
+                alarm.sound_day_over();
+            }
+            self.dirty = true;
+        }
         ctx.request_repaint_after(Duration::from_secs(1));
         self.remember_window_pos(&ctx);
 
@@ -526,10 +615,10 @@ impl eframe::App for WipTracker {
         let clock_parts = self.show_duration.then(|| self.clock_parts(now)).flatten();
         let clock = clock_parts
             .as_ref()
-            .map(|(today, tooltip, over_limit)| bar::Clock {
+            .map(|(today, tooltip, over)| bar::Clock {
                 today,
                 tooltip,
-                over_limit: *over_limit,
+                over: *over,
             });
 
         let can_revive = !self
@@ -542,7 +631,10 @@ impl eframe::App for WipTracker {
             can_revive,
         };
         let time = ctx.input(|input| input.time);
-        let monitor = ctx.input(|input| input.viewport().monitor_size);
+        let placement = crate::ui::place::Placement {
+            bar: self.window_rect,
+            monitor: ctx.input(|input| input.viewport().monitor_size),
+        };
 
         let mut outcome = bar::BarOutcome::default();
         let mut renaming = false;
@@ -564,7 +656,7 @@ impl eframe::App for WipTracker {
         // The hint window only exists while there is something to explain, so it appears
         // and disappears with the pointer.
         if let Some(hint) = &outcome.hint {
-            hint::show(&ctx, hint, self.window_pos, monitor);
+            hint::show(&ctx, hint, &placement);
         }
 
         if self.menu_open {
@@ -575,9 +667,10 @@ impl eframe::App for WipTracker {
                     paused: self.tracker.focused_id() == PAUSE_ID,
                     show_duration: self.show_duration,
                     decorated: self.is_decorated(),
+                    day_timer_set: !self.tracker.day_timer().is_zero(),
+                    nag_muted: self.tracker.nag_muted(now.date_naive()),
                     notice: self.notice.as_deref(),
-                    bar: self.window_pos,
-                    monitor,
+                    placement,
                     platform_notice: (choose_backend() == Backend::Wayland)
                         .then_some(WAYLAND_NOTICE),
                     was_focused: self.menu_was_focused,
@@ -594,6 +687,21 @@ impl eframe::App for WipTracker {
             }
             self.menu_was_focused = outcome.was_focused;
             self.apply_menu_action(outcome.action, now);
+        }
+
+        if self.windows.launcher_offer {
+            match windows::launcher_offer(&ctx, &mut self.windows) {
+                windows::LauncherChoice::Install => {
+                    self.install_launcher();
+                    self.launcher_offer_dismissed = true;
+                    self.dirty = true;
+                }
+                windows::LauncherChoice::Dismiss => {
+                    self.launcher_offer_dismissed = true;
+                    self.dirty = true;
+                }
+                windows::LauncherChoice::None => {}
+            }
         }
 
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);

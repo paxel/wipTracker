@@ -50,13 +50,16 @@ class Wiptracker < Formula
     SH
     (bin/"wiptracker-install-icon").chmod 0755
 
-    # Also in Homebrew's own share, for the sessions that do read it.
+    # Also in Homebrew's own share, for the sessions that do read it. The sizes are read
+    # off the files, so the list lives only in make_icon.py; icon.png is the 512 pixel
+    # one, and 1024 belongs to the macOS bundle.
     (share/"applications").mkpath
     cp libexec/"wiptracker.desktop", share/"applications/wiptracker.desktop"
-    [32, 48, 64, 128, 256, 512].each do |size|
-      source = size == 512 ? libexec/"icon.png" : libexec/"icon-#{size}.png"
-      next unless source.exist?
-
+    sized = Pathname.glob(libexec/"icon-*.png")
+                    .map { |source| [source.basename(".png").to_s.delete_prefix("icon-").to_i, source] }
+                    .reject { |size, _| size == 1024 }
+    sized << [512, libexec/"icon.png"] if (libexec/"icon.png").exist?
+    sized.each do |size, source|
       directory = share/"icons/hicolor/#{size}x#{size}/apps"
       directory.mkpath
       cp source, directory/"wiptracker.png"

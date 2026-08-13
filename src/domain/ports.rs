@@ -21,6 +21,9 @@ pub struct Snapshot {
     /// The daily timer new tasks start with. Zero means no alarm.
     #[serde(default)]
     pub default_timer: std::time::Duration,
+    /// The timer for the whole day's work. Zero means no alarm.
+    #[serde(default)]
+    pub day_timer: std::time::Duration,
     /// When time was last credited, so a short gap while the app was closed can be
     /// recovered on the next start. `None` before the first save.
     #[serde(default)]
@@ -31,6 +34,9 @@ pub struct Snapshot {
     pub decorated: Option<bool>,
     /// Window position in logical points, as last seen.
     pub window_pos: Option<(f32, f32)>,
+    /// Whether the offer to add WipTracker to the application menu was declined for good.
+    #[serde(default)]
+    pub launcher_offer_dismissed: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -45,9 +51,13 @@ pub enum StoreError {
     Corrupt(String),
 }
 
-/// Something that can make a noise when a task's daily timer runs out.
+/// Something that can make a noise when a timer runs out.
 pub trait Alarm: Send + Sync {
+    /// A task's daily timer was reached.
     fn sound(&self);
+    /// The whole day's timer was reached — a distinct noise, so it cannot be mistaken
+    /// for one more task.
+    fn sound_day_over(&self);
 }
 
 /// Somewhere a [`Snapshot`] can be kept.
