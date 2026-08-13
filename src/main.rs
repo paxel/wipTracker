@@ -9,10 +9,14 @@ use wiptracker::theme;
 const USAGE: &str = "\
 WipTracker — a one-line always-on-top bar showing the task you are focused on.
 
-Usage: wiptracker [--version] [--help]
+Usage: wiptracker [--version] [--help] [--reset-position]
 
-The app has no command-line interface beyond these two flags: everything happens on the
-bar itself. See https://github.com/paxel/wipTracker for what the clicks do.";
+  --reset-position  Open where the window manager wants to, and forget the stored
+                    position. Use it when the bar is remembered somewhere you cannot see
+                    it — a monitor that has been unplugged, or a layout that has changed.
+
+Everything else happens on the bar itself. See https://github.com/paxel/wipTracker for
+what the clicks do.";
 
 /// The taskbar icon: a small cat reading, drawn by `packaging/make_icon.py`.
 ///
@@ -50,6 +54,7 @@ fn ask_for_backend(options: &mut eframe::NativeOptions, backend: Backend) {
 fn ask_for_backend(_options: &mut eframe::NativeOptions, _backend: Backend) {}
 
 fn main() -> eframe::Result<()> {
+    let mut reset_position = false;
     if let Some(argument) = std::env::args().nth(1) {
         match argument.as_str() {
             "--version" | "-V" => {
@@ -60,6 +65,7 @@ fn main() -> eframe::Result<()> {
                 println!("{USAGE}");
                 return Ok(());
             }
+            "--reset-position" => reset_position = true,
             other => {
                 eprintln!("wiptracker: unknown argument {other:?}\n\n{USAGE}");
                 std::process::exit(2);
@@ -105,6 +111,7 @@ fn main() -> eframe::Result<()> {
         .with_resizable(false);
     if let Ok((_, Some(snapshot))) = &opened
         && let Some((x, y)) = snapshot.window_pos
+        && !reset_position
     {
         viewport = viewport.with_position(egui::pos2(x, y));
     }

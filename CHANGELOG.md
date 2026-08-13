@@ -2,7 +2,7 @@
 
 All notable changes to WipTracker are documented in this file.
 
-## [0.4.0]
+## [0.5.0]
 
 ### Added
 
@@ -60,6 +60,23 @@ All notable changes to WipTracker are documented in this file.
   in a white field even after the palette was pinned. Nothing about them reads the style
   any more, so nothing can override it, and the app repairs the palette whenever it finds
   it replaced rather than trusting one flag.
+- **The menu and the hint follow the bar onto a second monitor.** Both were clamped to the
+  width of the monitor the bar reports, which is the size of one screen while positions
+  count across all of them — so from about half way along a second monitor they stopped
+  following and stuck near the middle of the desktop. The left edge is now always the
+  bar's own; they are no wider than the bar, so there was nothing to clamp for.
+- **The Homebrew install shows up in the application menu.** The launcher entry went into
+  Homebrew's own share directory, which no desktop session reads, and named the binary and
+  the icon by bare name — so even when a menu found the entry it could neither draw nor
+  launch it. Both are absolute paths now, and `wiptracker-install-icon` copies the entry
+  and the icons into `~/.local/share`, which every session does read. Until then the app
+  could not be found in a menu or pinned to a panel.
+- **The bar no longer relocates itself into a gap between monitors.** It used to decide a
+  stored position was unreachable whenever it lay outside a rectangle the size of one
+  monitor — true for any position on a second screen — and then centre the window inside
+  that same rectangle, which on a desktop whose monitors are not aligned is a region no
+  screen covers. The stored position is now used as given, and `--reset-position` opens
+  where the window manager wants for the case that guessing was meant to solve.
 - **The menu opens where it fits.** It was always placed directly below the bar, so a bar
   near the bottom of the screen opened it past the edge. It now goes wherever it is fully
   visible, and scrolls if the screen is shorter than the list. Native Wayland is the

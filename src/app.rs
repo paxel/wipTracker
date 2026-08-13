@@ -162,8 +162,6 @@ pub struct WipTracker {
     menu_dismissed_at: Option<f64>,
     /// A short message shown in the menu, such as "restart to apply".
     notice: Option<String>,
-    /// Whether the restored window position has been checked against the screen.
-    position_checked: bool,
     /// Sounds when a task's daily timer runs out. `None` in tests that want silence.
     alarm: Option<Box<dyn Alarm>>,
     /// The tasks whose alarm sounded this session, kept for the tests to inspect.
@@ -230,7 +228,6 @@ impl WipTracker {
             menu_was_focused: false,
             menu_dismissed_at: None,
             notice: None,
-            position_checked: false,
             alarm: None,
             alarms_sounded: Vec::new(),
             rename: None,
@@ -337,46 +334,9 @@ impl WipTracker {
         let Some(rect) = ctx.input(|i| i.viewport().outer_rect) else {
             return;
         };
-        if self.rescue_offscreen_window(ctx, rect) {
-            return;
-        }
         // Deliberately not marked dirty: a drag would otherwise commit a transaction per
         // frame. The periodic save and the save on exit pick the position up.
         self.window_pos = Some((rect.min.x, rect.min.y));
-    }
-
-    /// Pulls the window back onto the screen if it opened outside it.
-    ///
-    /// A position stored while a second monitor was connected points nowhere once that
-    /// monitor is gone, and an undecorated window that cannot be seen cannot be dragged
-    /// back. egui reports the size of the monitor the window is on, not the whole desktop
-    /// layout, so this only catches a window that is fully outside it — which is exactly
-    /// the unrecoverable case.
-    ///
-    /// Returns whether the window was moved, in which case the position reported this
-    /// frame is the stale one and should not be stored.
-    fn rescue_offscreen_window(&mut self, ctx: &egui::Context, rect: egui::Rect) -> bool {
-        if self.position_checked {
-            return false;
-        }
-        let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) else {
-            return false;
-        };
-        self.position_checked = true;
-
-        let desktop = egui::Rect::from_min_size(egui::Pos2::ZERO, monitor);
-        // A negative coordinate is normal on a multi-monitor desktop, so only a window
-        // with no overlap at all counts as lost.
-        if desktop.intersects(rect) {
-            return false;
-        }
-        self.window_pos = None;
-        self.dirty = true;
-        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-            (monitor.x - rect.width()).max(0.0) / 2.0,
-            (monitor.y - rect.height()).max(0.0) / 4.0,
-        )));
-        true
     }
 
     /// Begins renaming the focused task, as a right-click on its name does.

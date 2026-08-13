@@ -27,31 +27,64 @@ class Wiptracker < Formula
     bin.install "wiptracker"
     # On Linux the desktop entry and the icon are what give the window a taskbar icon:
     # Wayland has no protocol for a client to set its own, so the compositor matches the
-    # window's app_id to wiptracker.desktop instead. Homebrew's share directory is on
-    # XDG_DATA_DIRS, so installing them here is enough.
+    # window's app_id to wiptracker.desktop instead.
     return unless OS.linux?
 
-    (share/"applications").install "wiptracker.desktop"
-    (share/"icons/hicolor/512x512/apps").install "icon.png" => "wiptracker.png"
-    # The smaller sizes matter: a menu drawing at 32 pixels would otherwise downsample the
-    # 512 pixel one.
-    [32, 48, 64, 128, 256].each do |size|
-      source = "icon-#{size}.png"
-      next unless File.exist?(source)
+    # Absolute paths, not bare names. A desktop session does not read Homebrew's shell
+    # environment, so neither its bin directory nor its icon theme directory is on the
+    # session's PATH or XDG_DATA_DIRS: "Exec=wiptracker" would fail to launch and
+    # "Icon=wiptracker" would find nothing to draw.
+    icon = "#{opt_prefix}/share/icons/hicolor/256x256/apps/wiptracker.png"
+    inreplace "wiptracker.desktop" do |entry|
+      entry.gsub! "Exec=wiptracker", "Exec=#{opt_bin}/wiptracker"
+      entry.gsub! "Icon=wiptracker", "Icon=#{icon}"
+    end
 
-      (share/"icons/hicolor/#{size}x#{size}/apps").install source => "wiptracker.png"
+    # The installer and everything it copies live together, so it finds the icons next to
+    # itself. A wrapper rather than a symlink, for the same reason.
+    libexec.install "install-icon.sh", "wiptracker.desktop"
+    libexec.install Dir["icon*.png"]
+    (bin/"wiptracker-install-icon").write <<~SH
+      #!/bin/sh
+      exec "#{opt_libexec}/install-icon.sh" "$@"
+    SH
+    (bin/"wiptracker-install-icon").chmod 0755
+
+    # Also in Homebrew's own share, for the sessions that do read it.
+    (share/"applications").mkpath
+    cp libexec/"wiptracker.desktop", share/"applications/wiptracker.desktop"
+    [32, 48, 64, 128, 256, 512].each do |size|
+      source = size == 512 ? libexec/"icon.png" : libexec/"icon-#{size}.png"
+      next unless source.exist?
+
+      directory = share/"icons/hicolor/#{size}x#{size}/apps"
+      directory.mkpath
+      cp source, directory/"wiptracker.png"
     end
   end
 
   def caveats
-    <<~EOS
+    return <<~EOS unless OS.linux?
       WipTracker is a desktop bar, not a command-line tool: run `wiptracker` from a
       graphical session. The macOS release also ships WipTracker.app for the Dock;
       download the .dmg from the GitHub release page if you prefer that.
+    EOS
 
-      On Wayland the bar cannot stay on top and starts with a window frame, because no
-      Wayland protocol exists for either. Use your compositor's own "keep above" window
-      rule. The taskbar icon is installed with this formula.
+    <<~EOS
+      WipTracker is a desktop bar, not a command-line tool: run `wiptracker` from a
+      graphical session.
+
+      To get it into your application menu, where it can also be pinned, run once:
+
+        wiptracker-install-icon
+
+      That copies the launcher entry and the icons into ~/.local/share, which every
+      desktop session reads. Homebrew's own share directory is not on a session's
+      XDG_DATA_DIRS, so an entry installed there alone stays invisible to menus. Add
+      --autostart to the same command to start WipTracker with your session.
+
+      Without XWayland the bar cannot stay on top and starts with a window frame, because
+      Wayland has no protocol for either; use your compositor's own "keep above" rule.
     EOS
   end
 
