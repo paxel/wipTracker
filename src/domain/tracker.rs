@@ -1156,4 +1156,42 @@ mod tests {
         let restored = Tracker::from_snapshot(&snapshot, at(1, 10));
         assert_eq!(restored.idle_pause(), Duration::from_secs(300));
     }
+
+    /// The error paths of the stack operations: unknown ids, wrong states, and the
+    /// zero-credit edge of an empty day.
+    #[test]
+    fn the_refusals_name_their_reasons() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+
+        assert_eq!(
+            tracker.select(999, at(1, 10)),
+            Err(TrackerError::UnknownTask(999))
+        );
+        assert_eq!(
+            tracker.revive(999, at(1, 10)),
+            Err(TrackerError::UnknownTask(999))
+        );
+        assert_eq!(
+            tracker.revive(task, at(1, 10)),
+            Err(TrackerError::TaskIsNotFinished(task))
+        );
+
+        tracker.finish_focused(at(1, 10));
+        assert_eq!(
+            tracker.select(task, at(1, 11)),
+            Err(TrackerError::TaskIsFinished(task))
+        );
+
+        // Crediting zero on a day with no record changes nothing and panics nowhere.
+        let mut record = crate::domain::day::DayRecord::default();
+        record.credit(task, Duration::ZERO, at(2, 9), at(2, 9));
+        assert_eq!(record.total(), Duration::ZERO);
+
+        // Uncrediting on a day that never saw work is equally uneventful.
+        let mut fresh = Tracker::new(at(3, 9));
+        fresh.push_new_task(at(3, 9));
+        fresh.set_idle_pause(Duration::from_secs(60));
+        assert!(fresh.pause_after_idle(Duration::from_secs(120), at(3, 9)));
+    }
 }

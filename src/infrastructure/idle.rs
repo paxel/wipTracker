@@ -12,6 +12,13 @@ pub struct SystemIdle;
 
 impl IdleProbe for SystemIdle {
     fn idle(&self) -> Option<Duration> {
+        // Asking with no X server at all is not an error in the library underneath but a
+        // null-pointer dereference: it opens the display and uses it unchecked. On Linux
+        // the socket is probed first, which keeps a headless machine — and the native
+        // Wayland path — answering `None` instead of crashing the bar.
+        if cfg!(target_os = "linux") && !crate::app::x11_is_reachable() {
+            return None;
+        }
         user_idle::UserIdle::get_time()
             .ok()
             .map(|idle| idle.duration())

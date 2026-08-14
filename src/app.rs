@@ -56,8 +56,11 @@ pub fn choose_backend() -> Backend {
 ///
 /// A display on another host is taken at its word; only the local socket is cheap enough
 /// to test.
+///
+/// Public within the crate: the idle probe needs the same answer, because the library
+/// underneath it dereferences a null display rather than reporting one.
 #[cfg(unix)]
-fn x11_is_reachable() -> bool {
+pub(crate) fn x11_is_reachable() -> bool {
     let Some(display) = std::env::var_os("DISPLAY") else {
         return false;
     };
@@ -76,7 +79,7 @@ fn x11_is_reachable() -> bool {
 /// used there — `WAYLAND_DISPLAY` is not set either, so the choice never reaches it — but
 /// the function has to exist for the code around it to compile.
 #[cfg(not(unix))]
-fn x11_is_reachable() -> bool {
+pub(crate) fn x11_is_reachable() -> bool {
     false
 }
 
