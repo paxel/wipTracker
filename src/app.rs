@@ -61,9 +61,10 @@ pub fn choose_backend() -> Backend {
 /// underneath it dereferences a null display rather than reporting one.
 #[cfg(unix)]
 pub(crate) fn x11_is_reachable() -> bool {
-    let Some(display) = std::env::var_os("DISPLAY") else {
-        return false;
-    };
+    // Kept to lines that run whether or not this machine has a DISPLAY, so the coverage
+    // measurement reads the same on a workstation and a headless runner; the branching
+    // lives in `x11_reachable_at`, which the tests drive both ways everywhere.
+    let display = std::env::var_os("DISPLAY").unwrap_or_default();
     x11_reachable_at(
         &display.to_string_lossy(),
         std::path::Path::new("/tmp/.X11-unix"),

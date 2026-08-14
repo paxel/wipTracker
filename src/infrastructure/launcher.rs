@@ -39,8 +39,14 @@ pub fn data_home() -> Option<PathBuf> {
 /// Every directory the session finds applications in: the user's own, then
 /// `$XDG_DATA_DIRS` or its default.
 fn data_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = data_home().into_iter().collect();
-    let system = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+    data_dirs_with(data_home(), std::env::var("XDG_DATA_DIRS").ok())
+}
+
+/// [`data_dirs`] against named inputs, so both the set and the unset shape are exercised
+/// on every machine — which branch the environment picks must not move the coverage.
+fn data_dirs_with(data_home: Option<PathBuf>, system: Option<String>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = data_home.into_iter().collect();
+    let system = system.unwrap_or_default();
     if system.is_empty() {
         dirs.push(PathBuf::from("/usr/local/share"));
         dirs.push(PathBuf::from("/usr/share"));
@@ -297,6 +303,28 @@ mod tests {
         assert!(!target.exists());
         set_autostart_in(scratch.path(), false, Path::new("/opt/wiptracker"))
             .expect("off again is fine");
+    }
+
+    /// Both shapes of `XDG_DATA_DIRS`, independent of what this machine's session says:
+    /// unset falls back to the two system prefixes, set is split with empties dropped.
+    #[test]
+    fn the_data_dirs_cover_both_environment_shapes() {
+        let unset = data_dirs_with(Some(PathBuf::from("/home/u/.local/share")), None);
+        assert_eq!(
+            unset,
+            vec![
+                PathBuf::from("/home/u/.local/share"),
+                PathBuf::from("/usr/local/share"),
+                PathBuf::from("/usr/share"),
+            ]
+        );
+
+        let set = data_dirs_with(None, Some("/opt/share::/var/share".to_owned()));
+        assert_eq!(
+            set,
+            vec![PathBuf::from("/opt/share"), PathBuf::from("/var/share")],
+            "split on colons, empty entries dropped"
+        );
     }
 
     /// The environment readers answer on any machine with a home directory, and the

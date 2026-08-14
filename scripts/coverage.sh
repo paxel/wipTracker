@@ -55,10 +55,12 @@ if [ "$below" = 1 ]; then
   exit 1
 fi
 
-# The floor trails the measurement by a tenth of a point. A last line or two always
-# depends on the environment — which branch of an env-var wrapper runs, say — so a floor
-# raised to exactly one machine's number is unreachable on another. The trail absorbs
-# that; the ratchet still only moves up.
+# The floor trails the measurement by a tenth of a point, as a residual guard against
+# run-to-run noise. It used to trail by half a point to paper over machines measuring
+# differently — the real cause was environment-dependent branches (XDG_DATA_DIRS set or
+# not, DISPLAY set or not) covering different lines per machine. Those are gone: env
+# reads are one unconditional line each, and both branch shapes are driven by tests on
+# every machine. A workstation and a headless runner now measure identically.
 raised=$(awk -v c="$coverage" 'BEGIN { printf "%.2f", c - 0.10 }')
 above=$(awk -v r="$raised" -v f="$floor" 'BEGIN { print (r > f) ? 1 : 0 }')
 if [ "$above" = 1 ] && [ "$check_only" = false ]; then
