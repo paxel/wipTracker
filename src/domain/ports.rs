@@ -37,6 +37,10 @@ pub struct Snapshot {
     /// Whether the offer to add WipTracker to the application menu was declined for good.
     #[serde(default)]
     pub launcher_offer_dismissed: bool,
+    /// Auto-pause once the user has been idle this long. Zero means never — the default,
+    /// because watching the user's input is opt-in.
+    #[serde(default)]
+    pub idle_pause: std::time::Duration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -51,13 +55,20 @@ pub enum StoreError {
     Corrupt(String),
 }
 
-/// Something that can make a noise when a timer runs out.
+/// Something that can announce a timer running out — with noise, a notification, or
+/// whatever the platform offers.
 pub trait Alarm: Send + Sync {
-    /// A task's daily timer was reached.
-    fn sound(&self);
-    /// The whole day's timer was reached — a distinct noise, so it cannot be mistaken
-    /// for one more task.
+    /// `task`'s daily timer was reached.
+    fn sound(&self, task: &str);
+    /// The whole day's timer was reached — distinct from a task, so the two cannot be
+    /// mistaken for each other.
     fn sound_day_over(&self);
+}
+
+/// Something that knows how long the user has been away from keyboard and mouse,
+/// machine-wide. `None` where the platform will not say.
+pub trait IdleProbe: Send + Sync {
+    fn idle(&self) -> Option<std::time::Duration>;
 }
 
 /// Somewhere a [`Snapshot`] can be kept.

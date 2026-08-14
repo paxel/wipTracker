@@ -23,8 +23,26 @@ All notable changes to WipTracker are documented in this file.
   until _mute day reminder_ in the menu silences it — for that day only; tomorrow it
   reminds again on its own.
 
+- **Auto-pause when idle, strictly opt-in.** A new _auto-pause when idle_ row in the
+  timer window (off unless chosen) starts the break by itself once keyboard and mouse
+  have been quiet that long — and takes the quiet minutes off the task, so the break is
+  counted from when the input stopped, not from when it was noticed. Off means WipTracker
+  never looks at your input at all.
+- **Timers announce themselves as desktop notifications** as well as beeps, so a muted
+  machine still hears about them. The task alarm names the task; the day alarm says how
+  to mute the reminder.
+- **_start with my session_ in the menu.** One toggle writes or removes the autostart
+  entry (Linux), a Startup-folder script (Windows), or a login item (macOS) — no more
+  documented one-liners per platform.
+
 ### Fixed
 
+- **Suspend no longer credits the night to the focused task.** With the app left running,
+  closing the lid meant the whole sleep was booked onto whatever was on top, because the
+  once-a-second frames stopped and the next frame credited the entire silence. A hole in
+  the frame stream longer than two minutes is now skipped: the time passed, nobody worked
+  it. Deliberately separate from the four-hour restart rule, which still credits a short
+  accidental close.
 - **A touchpad can drag the bar again.** The grip waited for the press to be recognised
   as "definitely not a click" before handing the window to the window manager, and the
   gesture rework had closed the time-based half of that recognition — the half a slow,

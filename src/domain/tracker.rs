@@ -39,6 +39,8 @@ pub struct Tracker {
     default_timer: Duration,
     /// The timer for the whole day's work, pause excluded. Zero means no alarm.
     day_timer: Duration,
+    /// Auto-pause once the user has been idle this long. Zero means never.
+    idle_pause: Duration,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
 }
@@ -56,6 +58,7 @@ impl Tracker {
             next_number: 1,
             default_timer: Duration::ZERO,
             day_timer: Duration::ZERO,
+            idle_pause: Duration::ZERO,
             active_since: now,
         }
     }
@@ -91,6 +94,7 @@ impl Tracker {
             next_number: snapshot.next_number.max(1),
             default_timer: snapshot.default_timer,
             day_timer: snapshot.day_timer,
+            idle_pause: snapshot.idle_pause,
             active_since: resume_from,
         };
         tracker
@@ -122,6 +126,7 @@ impl Tracker {
             next_number: self.next_number,
             default_timer: self.default_timer,
             day_timer: self.day_timer,
+            idle_pause: self.idle_pause,
             last_seen: Some(self.active_since),
             show_duration,
             decorated,
@@ -205,6 +210,23 @@ impl Tracker {
         self.history
             .get(&day)
             .map_or(Duration::ZERO, |record| record.duration_of(task))
+    }
+
+    /// How far apart two frames may lie and still count as continuous work.
+    ///
+    /// Frames arrive about once a second while the app runs, so a much longer silence
+    /// means the machine was suspended or frozen — nobody was working. Two minutes is far
+    /// above any real stall, and short enough that a lid closed over lunch cannot credit
+    /// the afternoon. Deliberately stricter than [`Self::RECOVERABLE_GAP`], which covers
+    /// restarting the app on purpose; the caller watching the frames decides which of the
+    /// two applies and uses [`Self::skip_to`] for a sleep.
+    pub const CONTINUOUS_GAP: TimeDelta = TimeDelta::minutes(2);
+
+    /// Moves the accrual mark to `now` without crediting anything.
+    ///
+    /// For the span the machine slept through: the time passed, but nobody worked it.
+    pub fn skip_to(&mut self, now: DateTime<Local>) {
+        self.active_since = self.active_since.max(now);
     }
 
     /// Credits the focused task with the time since the last accrual and resets the mark.
@@ -343,6 +365,52 @@ impl Tracker {
 
     pub fn day_timer(&self) -> Duration {
         self.day_timer
+    }
+
+    pub fn idle_pause(&self) -> Duration {
+        self.idle_pause
+    }
+
+    /// Sets how long the user may be idle before the break starts on its own. Zero
+    /// switches auto-pause off — the default, since watching input is opt-in.
+    pub fn set_idle_pause(&mut self, idle_pause: Duration) {
+        self.idle_pause = idle_pause;
+    }
+
+    /// Starts the break because the user has been idle for `idle`, if that is wanted,
+    /// long enough, and a task is focused at all. Returns whether the break began.
+    ///
+    /// The credited tail is taken back: the task stops counting from the moment the
+    /// input stopped, not from the moment the threshold was noticed — otherwise every
+    /// auto-pause would gift the task its own trigger delay.
+    pub fn pause_after_idle(&mut self, idle: Duration, now: DateTime<Local>) -> bool {
+        if self.idle_pause.is_zero() || idle < self.idle_pause {
+            return false;
+        }
+        if self.focused_id() == PAUSE_ID {
+            return false;
+        }
+        self.accrue(now);
+        self.uncredit(idle, now);
+        let _ = self.select(PAUSE_ID, now);
+        true
+    }
+
+    /// Takes back up to `span` of what the focused task was credited today. Only today:
+    /// an idle span is minutes, not days.
+    fn uncredit(&mut self, span: Duration, now: DateTime<Local>) {
+        let focused = self.focused_id();
+        let Some(record) = self.history.get_mut(&now.date_naive()) else {
+            return;
+        };
+        let Some(credited) = record.per_task.get_mut(&focused) else {
+            return;
+        };
+        let taken = span.min(*credited);
+        *credited -= taken;
+        if let Some(task) = self.tasks.get_mut(&focused) {
+            task.total = task.total.saturating_sub(taken);
+        }
     }
 
     /// Sets the timer for the whole day's work. Zero switches the alarm off.
@@ -794,6 +862,7 @@ mod tests {
             day_timer: Duration::ZERO,
             last_seen: None,
             launcher_offer_dismissed: false,
+            idle_pause: Duration::ZERO,
             show_duration: true,
             decorated: None,
             window_pos: None,
@@ -1026,5 +1095,65 @@ mod tests {
         let snapshot = tracker.snapshot(true, None, None);
         let restored = Tracker::from_snapshot(&snapshot, at(1, 10));
         assert_eq!(restored.day_timer(), hours(8));
+    }
+
+    /// A suspend is skipped, not credited: the mark moves, the numbers do not.
+    #[test]
+    fn a_skipped_span_credits_nothing() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+        tracker.skip_to(at(1, 18));
+        tracker.accrue(at(1, 18) + TimeDelta::seconds(1));
+
+        let worked = tracker.duration_on(task, at(1, 9).date_naive());
+        assert_eq!(worked, hours(1) + Duration::from_secs(1));
+    }
+
+    /// Auto-pause is off until asked for, and then takes the idle tail off the task:
+    /// the break starts when the input stopped, not when the threshold was noticed.
+    #[test]
+    fn idling_long_enough_starts_the_break_and_uncredits_the_tail() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 10));
+
+        let idle = Duration::from_secs(600);
+        assert!(
+            !tracker.pause_after_idle(idle, at(1, 10)),
+            "off by default: watching input is opt-in"
+        );
+
+        tracker.set_idle_pause(Duration::from_secs(300));
+        assert!(tracker.pause_after_idle(idle, at(1, 10)));
+        assert_eq!(tracker.focused_id(), PAUSE_ID);
+        assert_eq!(
+            tracker.duration_on(task, at(1, 9).date_naive()),
+            hours(1) - idle,
+            "the ten idle minutes are taken back"
+        );
+
+        assert!(
+            !tracker.pause_after_idle(idle, at(1, 11)),
+            "already paused: nothing to do"
+        );
+    }
+
+    #[test]
+    fn a_short_idle_does_not_pause() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        tracker.set_idle_pause(Duration::from_secs(600));
+        assert!(!tracker.pause_after_idle(Duration::from_secs(60), at(1, 10)));
+        assert_ne!(tracker.focused_id(), PAUSE_ID);
+    }
+
+    #[test]
+    fn the_idle_pause_setting_is_persisted() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_idle_pause(Duration::from_secs(300));
+        let snapshot = tracker.snapshot(true, None, None);
+        let restored = Tracker::from_snapshot(&snapshot, at(1, 10));
+        assert_eq!(restored.idle_pause(), Duration::from_secs(300));
     }
 }

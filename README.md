@@ -56,23 +56,19 @@ tar -xzf wiptracker-*-linux-x86_64.tar.gz
 ./wiptracker
 ```
 
-Add `--autostart` to that script to have WipTracker start with your session, and
-`--no-autostart` to stop it again. With the `.deb` or Homebrew, the same is one copy:
-
-```sh
-mkdir -p ~/.config/autostart
-cp /usr/share/applications/wiptracker.desktop ~/.config/autostart/
-```
+To start WipTracker with your session, use menu → _start with my session_ — it works the
+same from any install. The tarball script also accepts `--autostart`/`--no-autostart`.
 
 **Windows** — unpack the zip and run `wiptracker.exe`. To get it into the Start menu, and
 optionally into your login:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install-shortcut.ps1 -Startup
+powershell -ExecutionPolicy Bypass -File install-shortcut.ps1
 ```
 
-Both shortcuts are per-user and need no administrator rights; `-Remove` takes them away
-again. Scoop installs the Start-menu entry itself, so this is only for the zip.
+The shortcut is per-user and needs no administrator rights; `-Remove` takes it away
+again, and menu → _start with my session_ handles login from inside the app. Scoop
+installs the Start-menu entry itself, so this is only for the zip.
 
 **macOS** — open the `.dmg` (one universal build, Apple Silicon and Intel) and move
 `WipTracker.app` to `/Applications`. The build is not
@@ -83,8 +79,9 @@ signed with an Apple Developer certificate, so Gatekeeper will refuse it on firs
 xattr -cr /Applications/WipTracker.app
 ```
 
-To have it start with your session, add it under _System Settings → General → Login Items
-→ Open at Login_. The bar has no Dock icon and no Cmd-Tab entry by design — it is a
+To have it start with your session, use menu → _start with my session_, or add it under
+_System Settings → General → Login Items_. The bar has no Dock icon and no Cmd-Tab entry
+by design — it is a
 one-line window, not an application to switch to — so _end day_ is how you close it.
 
 Or use a package manager — each release pushes a formula and a manifest.
@@ -134,6 +131,11 @@ and a default for new ones. Click a row, pick a duration, and WipTracker beeps o
 that task has been worked on that long today — and the clock on the bar turns amber for the
 rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
 default applies to every task created afterwards.
+
+**Let the break start itself.** _auto-pause when idle_, in the same window, is off until
+you choose a span. Chosen, WipTracker switches to `pause` once keyboard and mouse have
+been quiet that long, and takes the quiet minutes off the task — the break counts from
+when you stopped, not from when it was noticed. Off means your input is never watched.
 
 **Set a limit for the whole day.** The same window's first row, _the whole day_, counts
 every task together — breaks not counted. Reaching it plays a distinct noise and turns the

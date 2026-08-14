@@ -30,6 +30,8 @@ pub enum MenuAction {
     ToggleDecorations,
     /// Mute or unmute the repeating day reminder, for today only.
     ToggleNag,
+    /// Start, or stop starting, WipTracker with the session.
+    ToggleAutostart,
 }
 
 pub struct MenuOutcome {
@@ -51,6 +53,8 @@ pub struct MenuContext<'a> {
     pub day_timer_set: bool,
     /// Whether the repeating day reminder is muted for today.
     pub nag_muted: bool,
+    /// Whether WipTracker starts with the session; `None` where that cannot be known.
+    pub autostart: Option<bool>,
     /// A short message shown at the bottom, such as "restart to apply".
     pub notice: Option<&'a str>,
     /// A standing message about the platform, shown under the notice. Unlike `notice` it
@@ -116,6 +120,11 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "unmute day reminder"
     } else {
         "mute day reminder"
+    };
+    let autostart_label = if context.autostart == Some(true) {
+        "stop starting with my session"
+    } else {
+        "start with my session"
     };
 
     vec![
@@ -188,6 +197,12 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             MenuAction::ToggleDuration,
             true,
             "Show or hide the running clock on the bar",
+        ),
+        item(
+            autostart_label,
+            MenuAction::ToggleAutostart,
+            context.autostart.is_some(),
+            "Start WipTracker automatically when you log in, or stop doing so",
         ),
         item(
             nag_label,

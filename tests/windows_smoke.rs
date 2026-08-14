@@ -185,7 +185,7 @@ struct SilentAlarm(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 const DAY_SOUND: usize = 100;
 
 impl wiptracker::domain::ports::Alarm for SilentAlarm {
-    fn sound(&self) {
+    fn sound(&self, _task: &str) {
         self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
@@ -393,4 +393,78 @@ fn declining_the_launcher_offer_is_remembered() {
     harness.get_by_label("Don't ask again").click_accesskit();
     harness.run();
     assert!(!harness.state().windows().launcher_offer);
+}
+
+/// A fixed answer instead of the operating system's idle clock.
+struct AlwaysIdle(std::time::Duration);
+
+impl wiptracker::domain::ports::IdleProbe for AlwaysIdle {
+    fn idle(&self) -> Option<std::time::Duration> {
+        Some(self.0)
+    }
+}
+
+/// With auto-pause configured, a long-idle user is moved to the break by the app loop
+/// itself; without the setting nothing watches at all.
+#[test]
+fn a_long_idle_starts_the_break_when_asked_to() {
+    use wiptracker::domain::task::PAUSE_NAME;
+
+    let mut tracker = Tracker::new(at(1, 9));
+    let id = tracker.push_new_task(at(1, 9));
+    tracker.rename(id, "write the report").expect("rename");
+    tracker.set_idle_pause(std::time::Duration::from_secs(300));
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, tracker);
+            app.set_idle_probe(Box::new(AlwaysIdle(std::time::Duration::from_secs(600))));
+            app
+        });
+    harness.run();
+
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+}
+
+/// The menu toggle writes and removes the autostart entry, against a scratch directory.
+#[test]
+fn the_menu_toggles_starting_with_the_session() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let config = scratch.path().to_path_buf();
+    let into = config.clone();
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, Tracker::new(at(1, 9)));
+            app.set_autostart_config_home(into);
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+
+    harness
+        .get_by_label_contains("start with my session")
+        .click_accesskit();
+    harness.run();
+    assert!(
+        config.join("autostart/wiptracker.desktop").exists(),
+        "the toggle wrote the autostart entry"
+    );
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness
+        .get_by_label_contains("stop starting with my session")
+        .click_accesskit();
+    harness.run();
+    assert!(
+        !config.join("autostart/wiptracker.desktop").exists(),
+        "the toggle removed it again"
+    );
 }

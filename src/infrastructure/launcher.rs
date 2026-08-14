@@ -121,6 +121,109 @@ pub fn config_home() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
 }
 
+/// Whether WipTracker starts with the session.
+///
+/// `None` where this cannot be known, which disables the menu toggle.
+pub fn autostart_enabled() -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        Some(config_home()?.join("autostart/wiptracker.desktop").exists())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let shortcut = startup_dir()?.join("WipTracker.cmd");
+        Some(shortcut.exists())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "tell application \"System Events\" to get the name of every login item",
+            ])
+            .output()
+            .ok()?;
+        Some(String::from_utf8_lossy(&output.stdout).contains("WipTracker"))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
+/// Switches starting with the session on or off.
+pub fn set_autostart(enabled: bool, exe: &Path) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let config = config_home().ok_or_else(|| io::Error::other("no home directory"))?;
+        set_autostart_in(&config, enabled, exe)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // A .cmd in the Startup folder: no COM, no registry, removable by hand.
+        let target = startup_dir()
+            .ok_or_else(|| io::Error::other("no Startup folder"))?
+            .join("WipTracker.cmd");
+        if enabled {
+            std::fs::write(target, format!("@start \"\" \"{}\"\r\n", exe.display()))
+        } else {
+            match std::fs::remove_file(target) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+                _ => Ok(()),
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let script = if enabled {
+            format!(
+                "tell application \"System Events\" to make login item at end with properties \
+                 {{path:\"{}\", hidden:false, name:\"WipTracker\"}}",
+                exe.display()
+            )
+        } else {
+            "tell application \"System Events\" to delete (every login item whose name is \
+             \"WipTracker\")"
+                .to_owned()
+        };
+        let status = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("osascript refused"))
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        let _ = (enabled, exe);
+        Err(io::Error::other("not supported here"))
+    }
+}
+
+/// The Linux half of [`set_autostart`], against a named config directory: an autostart
+/// entry is the launcher entry in `autostart/`. Public so tests and the app can aim it
+/// at a scratch directory.
+pub fn set_autostart_in(config_home: &Path, enabled: bool, exe: &Path) -> io::Result<()> {
+    let target = config_home.join("autostart/wiptracker.desktop");
+    if enabled {
+        std::fs::create_dir_all(target.parent().expect("autostart has a parent"))?;
+        std::fs::write(target, entry_for(exe))
+    } else {
+        match std::fs::remove_file(target) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn startup_dir() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(|appdata| PathBuf::from(appdata).join("Microsoft/Windows/Start Menu/Programs/Startup"))
+}
+
 /// Best-effort cache refresh so the entry appears without a re-login where possible.
 /// Every tool is optional; a desktop that has none picks the files up on its own.
 pub fn refresh_caches(data_home: &Path) {
@@ -178,6 +281,22 @@ mod tests {
                     .exists()
             );
         }
+    }
+
+    /// Switching autostart on writes the entry, off removes it, and off twice is fine.
+    #[test]
+    fn autostart_switches_on_and_off() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let target = scratch.path().join("autostart/wiptracker.desktop");
+
+        set_autostart_in(scratch.path(), true, Path::new("/opt/wiptracker")).expect("on");
+        let written = std::fs::read_to_string(&target).expect("entry written");
+        assert!(written.contains("Exec=/opt/wiptracker"));
+
+        set_autostart_in(scratch.path(), false, Path::new("/opt/wiptracker")).expect("off");
+        assert!(!target.exists());
+        set_autostart_in(scratch.path(), false, Path::new("/opt/wiptracker"))
+            .expect("off again is fine");
     }
 
     /// Removing on a machine that never installed is not an error.

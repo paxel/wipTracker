@@ -4,10 +4,11 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
 
-use crate::domain::ports::{Alarm, Snapshot, Store, StoreError};
+use crate::domain::ports::{Alarm, IdleProbe, Snapshot, Store, StoreError};
 use crate::domain::task::{PAUSE_ID, TaskId};
 use crate::domain::tracker::Tracker;
 use crate::infrastructure::beeper::Beeper;
+use crate::infrastructure::idle::SystemIdle;
 use crate::infrastructure::launcher;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
@@ -179,14 +180,24 @@ pub struct WipTracker {
     notice: Option<String>,
     /// Sounds when a task's daily timer runs out. `None` in tests that want silence.
     alarm: Option<Box<dyn Alarm>>,
+    /// Knows how long the user has been away. `None` in tests that fake it directly.
+    idle_probe: Option<Box<dyn IdleProbe>>,
     /// The tasks whose alarm sounded this session, kept for the tests to inspect.
     alarms_sounded: Vec<TaskId>,
     /// How often the day alarm sounded this session, kept for the tests to inspect.
     day_alarms_sounded: usize,
     /// Whether the offer to add WipTracker to the application menu was declined for good.
     launcher_offer_dismissed: bool,
+    /// Whether WipTracker starts with the session, read once at startup; `None` where
+    /// the platform will not say, which disables the menu toggle.
+    autostart: Option<bool>,
+    /// When the previous frame ran. A hole in the frame stream is a suspend: the span is
+    /// skipped rather than credited, or a closed lid would hand the task the whole night.
+    last_frame: Option<DateTime<Local>>,
     /// Where the launcher entry would be installed. Settable so tests write to scratch.
     launcher_data_home: Option<std::path::PathBuf>,
+    /// Overrides where the autostart entry goes, so tests never touch the real config.
+    autostart_config_home: Option<std::path::PathBuf>,
     rename: Option<Rename>,
     windows: OpenWindows,
 }
@@ -219,6 +230,8 @@ impl WipTracker {
         };
         app.store = Some(store);
         app.alarm = Some(Box::new(Beeper::new()));
+        app.idle_probe = Some(Box::new(SystemIdle));
+        app.autostart = launcher::autostart_enabled();
         // Only Linux menus lose track of a binary outside the system prefixes; macOS has
         // the bundle and Windows the Start-menu shortcut. Asked once, at most.
         if cfg!(target_os = "linux") && !app.launcher_offer_dismissed && !launcher::is_visible() {
@@ -257,10 +270,14 @@ impl WipTracker {
             menu_dismissed_at: None,
             notice: None,
             alarm: None,
+            idle_probe: None,
             alarms_sounded: Vec::new(),
             day_alarms_sounded: 0,
             launcher_offer_dismissed: false,
+            autostart: None,
+            last_frame: None,
             launcher_data_home: launcher::data_home(),
+            autostart_config_home: None,
             rename: None,
             windows: OpenWindows::default(),
         }
@@ -304,6 +321,11 @@ impl WipTracker {
     /// Replaces the alarm, so a test can hear it without a sound card.
     pub fn set_alarm(&mut self, alarm: Box<dyn Alarm>) {
         self.alarm = Some(alarm);
+    }
+
+    /// Replaces the idle probe, so a test can be idle without waiting.
+    pub fn set_idle_probe(&mut self, probe: Box<dyn IdleProbe>) {
+        self.idle_probe = Some(probe);
     }
 
     /// The tasks whose daily timer has gone off since the app started.
@@ -415,6 +437,12 @@ impl WipTracker {
         self.launcher_data_home = Some(path);
     }
 
+    /// Points the autostart switch somewhere else, and arms the toggle, for tests.
+    pub fn set_autostart_config_home(&mut self, path: std::path::PathBuf) {
+        self.autostart = Some(path.join("autostart/wiptracker.desktop").exists());
+        self.autostart_config_home = Some(path);
+    }
+
     /// Begins renaming the focused task, as a right-click on its name does.
     pub fn start_rename(&mut self) {
         let id = self.tracker.focused_id();
@@ -510,6 +538,25 @@ impl WipTracker {
                 });
                 self.dirty = true;
             }
+            MenuAction::ToggleAutostart => {
+                let wanted = self.autostart != Some(true);
+                let exe = std::env::current_exe().unwrap_or_default();
+                let switched = match &self.autostart_config_home {
+                    Some(config) => launcher::set_autostart_in(config, wanted, &exe),
+                    None => launcher::set_autostart(wanted, &exe),
+                };
+                match switched {
+                    Ok(()) => {
+                        self.autostart = Some(wanted);
+                        self.notice = Some(if wanted {
+                            "WipTracker starts with your session now.".to_owned()
+                        } else {
+                            "WipTracker no longer starts with your session.".to_owned()
+                        });
+                    }
+                    Err(error) => self.notice = Some(format!("Could not change that: {error}")),
+                }
+            }
             MenuAction::ToggleNag => {
                 let day = now.date_naive();
                 let muted = self.tracker.nag_muted(day);
@@ -591,11 +638,28 @@ impl eframe::App for WipTracker {
             install_theme(&ctx);
         }
 
+        // The first frame after a start is the restart-recovery span and stays credited;
+        // after that, a hole in the once-a-second frame stream is a suspend.
+        if self
+            .last_frame
+            .is_some_and(|last| now - last > Tracker::CONTINUOUS_GAP)
+        {
+            self.tracker.skip_to(now);
+        }
+        self.last_frame = Some(now);
+
         self.tracker.accrue(now);
+        if !self.tracker.idle_pause().is_zero()
+            && let Some(idle) = self.idle_probe.as_ref().and_then(|probe| probe.idle())
+            && self.tracker.pause_after_idle(idle, now)
+        {
+            self.dirty = true;
+        }
         for id in self.tracker.take_due_alarms(now) {
             self.alarms_sounded.push(id);
             if let Some(alarm) = &self.alarm {
-                alarm.sound();
+                let name = self.tracker.task(id).map(|task| task.name.as_str());
+                alarm.sound(name.unwrap_or("a task"));
             }
             self.dirty = true;
         }
@@ -669,6 +733,7 @@ impl eframe::App for WipTracker {
                     decorated: self.is_decorated(),
                     day_timer_set: !self.tracker.day_timer().is_zero(),
                     nag_muted: self.tracker.nag_muted(now.date_naive()),
+                    autostart: self.autostart,
                     notice: self.notice.as_deref(),
                     placement,
                     platform_notice: (choose_backend() == Backend::Wayland)

@@ -22,6 +22,7 @@ const KEY_NEXT_NUMBER: &str = "next_number";
 const KEY_DEFAULT_TIMER: &str = "default_timer";
 const KEY_DAY_TIMER: &str = "day_timer";
 const KEY_LAUNCHER_DISMISSED: &str = "launcher_offer_dismissed";
+const KEY_IDLE_PAUSE: &str = "idle_pause";
 const KEY_LAST_SEEN: &str = "last_seen";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
@@ -128,6 +129,11 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .flatten();
+        let idle_pause = parse(read_meta(KEY_IDLE_PAUSE)?)?
+            .map(serde_json::from_value::<std::time::Duration>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .unwrap_or_default();
         let launcher_offer_dismissed = parse(read_meta(KEY_LAUNCHER_DISMISSED)?)?
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
@@ -149,6 +155,7 @@ impl Store for RedbStore {
             decorated,
             window_pos,
             launcher_offer_dismissed,
+            idle_pause,
         }))
     }
 
@@ -195,6 +202,7 @@ impl Store for RedbStore {
                 KEY_LAUNCHER_DISMISSED,
                 &serde_json::json!(snapshot.launcher_offer_dismissed),
             )?;
+            put(KEY_IDLE_PAUSE, &serde_json::json!(snapshot.idle_pause))?;
             put(
                 KEY_SHOW_DURATION,
                 &serde_json::json!(snapshot.show_duration),
@@ -278,6 +286,7 @@ mod tests {
             day_timer: Duration::from_secs(8 * 3600),
             last_seen: Some(created),
             launcher_offer_dismissed: true,
+            idle_pause: Duration::from_secs(600),
             show_duration: false,
             decorated: Some(true),
             window_pos: Some((120.0, 40.0)),

@@ -46,7 +46,7 @@ jobs:
             libasound2-dev pkg-config \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libvulkan1 mesa-vulkan-drivers desktop-file-utils
+            libvulkan1 mesa-vulkan-drivers desktop-file-utils libxss-dev
       - name: Tag matches the crate version
         run: |
           ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
@@ -80,7 +80,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev pkg-config dpkg-dev \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
-            libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+            libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libxss-dev
       - name: Build release binary
         run: cargo build --release
       - name: Tarball with the desktop files

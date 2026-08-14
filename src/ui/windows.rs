@@ -343,6 +343,8 @@ pub enum TimerTarget {
     /// The timer new tasks inherit.
     Default,
     Task(TaskId),
+    /// Auto-pause once the user has been idle this long. Off by default.
+    IdlePause,
 }
 
 /// The timer window: the whole day, the default new tasks inherit, and one row per task.
@@ -353,6 +355,11 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
             TimerTarget::Day,
             "the whole day".to_owned(),
             tracker.day_timer(),
+        ),
+        (
+            TimerTarget::IdlePause,
+            "auto-pause when idle".to_owned(),
+            tracker.idle_pause(),
         ),
         (
             TimerTarget::Default,
@@ -386,8 +393,10 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                 RichText::new(
                     "When a task has been worked on this long today, WipTracker beeps once. \
                      The whole day's timer counts every task together, breaks excluded, \
-                     sounds its own noise, and turns the bar clock red. Zero means no \
-                     alarm.",
+                     sounds its own noise, and turns the bar clock red. Auto-pause \
+                     starts the break by itself once keyboard and mouse have been quiet \
+                     that long, and takes the quiet minutes off the task; off means \
+                     WipTracker never watches your input. Zero means no alarm.",
                 )
                 .color(theme::TEXT_DIM)
                 .small(),
@@ -414,16 +423,30 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                     }
                 });
                 if editing == Some(*id) {
-                    ui.horizontal_wrapped(|ui| {
-                        for (label, minutes) in [
-                            ("off", 0_u64),
+                    // Idle spans are minutes, timers are hours; each row offers what
+                    // makes sense for it.
+                    let choices: &[(&str, u64)] = if *id == TimerTarget::IdlePause {
+                        &[
+                            ("off", 0),
+                            ("3m", 3),
+                            ("5m", 5),
+                            ("10m", 10),
+                            ("15m", 15),
+                            ("30m", 30),
+                        ]
+                    } else {
+                        &[
+                            ("off", 0),
                             ("15m", 15),
                             ("30m", 30),
                             ("1h", 60),
                             ("2h", 120),
                             ("4h", 240),
                             ("8h", 480),
-                        ] {
+                        ]
+                    };
+                    ui.horizontal_wrapped(|ui| {
+                        for (label, minutes) in choices.iter().copied() {
                             if ui.button(label).clicked() {
                                 chosen = Some((*id, Duration::from_secs(minutes * 60)));
                             }
@@ -441,6 +464,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
     if let Some((target, duration)) = chosen {
         match target {
             TimerTarget::Day => tracker.set_day_timer(duration),
+            TimerTarget::IdlePause => tracker.set_idle_pause(duration),
             TimerTarget::Default => tracker.set_default_timer(duration),
             TimerTarget::Task(id) => {
                 let _ = tracker.set_timer(id, duration);

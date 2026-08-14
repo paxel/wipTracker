@@ -1,7 +1,8 @@
-//! The sound a task's daily timer makes when it runs out.
+//! What a timer running out sounds and looks like: a beep, and a desktop notification.
 //!
-//! Audio is best-effort: a machine with no working output device should keep tracking
-//! time rather than fail, so every error here is swallowed after being reported once.
+//! Both are best-effort: a machine with no output device or no notification daemon
+//! should keep tracking time rather than fail, so every error is swallowed — the audio
+//! one after being reported once.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -35,16 +36,41 @@ impl Beeper {
 }
 
 impl Alarm for Beeper {
-    /// Returns immediately: the tones are played on a scratch thread.
-    fn sound(&self) {
-        std::thread::spawn(|| play(TASK_TONES));
+    /// Returns immediately: tones and notification happen on a scratch thread.
+    fn sound(&self, task: &str) {
+        let task = task.to_owned();
+        std::thread::spawn(move || {
+            notify(
+                &format!("{task} reached its daily timer"),
+                "The clock on the bar stays amber for the rest of the day.",
+            );
+            play(TASK_TONES);
+        });
     }
 
     /// Returns immediately, like [`Self::sound`]. Three falling tones where the task
     /// alarm rises — the day being over should not sound like one more task.
     fn sound_day_over(&self) {
-        std::thread::spawn(|| play(DAY_TONES));
+        std::thread::spawn(|| {
+            notify(
+                "The day's timer is reached",
+                "The bar clock turns red for the rest of the day. The reminder repeats \
+                 every ten minutes; the menu can mute it for today.",
+            );
+            play(DAY_TONES);
+        });
     }
+}
+
+/// A desktop notification, so a muted machine still hears about its timers. Failure is
+/// silent: the beep alongside it is the fallback, and there is nothing to repair.
+fn notify(summary: &str, body: &str) {
+    let _ = notify_rust::Notification::new()
+        .appname("WipTracker")
+        .summary(summary)
+        .body(body)
+        .icon("wiptracker")
+        .show();
 }
 
 /// Frequency and length of each tone, in order.
@@ -80,4 +106,18 @@ fn play(tones: Tones) {
     }
     sink.sleep_until_end();
     drop(stream);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Best-effort means callable anywhere: with no output device and no notification
+    /// daemon this must return quietly, and with them it costs one short blip.
+    #[test]
+    fn every_announcement_survives_a_headless_machine() {
+        play(TASK_TONES);
+        play(DAY_TONES);
+        notify("test", "test");
+    }
 }

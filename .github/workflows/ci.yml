@@ -39,7 +39,7 @@ jobs:
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
             libvulkan1 mesa-vulkan-drivers \
-            desktop-file-utils
+            desktop-file-utils libxss-dev
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -110,7 +110,7 @@ jobs:
             libasound2-dev pkg-config \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libvulkan1 mesa-vulkan-drivers
+            libvulkan1 mesa-vulkan-drivers libxss-dev
 
       - name: Install cargo-tarpaulin
         uses: taiki-e/install-action@v2
