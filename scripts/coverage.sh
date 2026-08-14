@@ -31,9 +31,17 @@ write_badge() {
 }
 
 # The llvm engine, not the default ptrace one: only llvm collects coverage from the
-# binary the CLI tests spawn, via the inherited profile environment. Tarpaulin's last
-# line reads like "74.32% coverage, 1234/1660 lines covered".
+# binary the CLI tests spawn, via the inherited profile environment.
+#
+# The beeper and the idle probe are excluded from the measurement, not from the tests:
+# their line coverage depends on whether the machine has an audio device and an X server,
+# so including them made the number differ between a laptop and the CI runner — and a
+# floor raised on the richer machine was unreachable on the poorer one. Both are thin
+# best-effort adapters; their tests still run everywhere.
+#
+# Tarpaulin's last line reads like "74.32% coverage, 1234/1660 lines covered".
 coverage=$(cd "$ROOT" && cargo tarpaulin --engine llvm --all-features --workspace \
+  --exclude-files src/infrastructure/beeper.rs --exclude-files src/infrastructure/idle.rs \
   --skip-clean --out Stdout 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
 
 if [ -z "$coverage" ]; then
@@ -47,11 +55,16 @@ if [ "$below" = 1 ]; then
   exit 1
 fi
 
-above=$(awk -v c="$coverage" -v f="$floor" 'BEGIN { print (c > f) ? 1 : 0 }')
+# The floor trails the measurement by a tenth of a point. A last line or two always
+# depends on the environment — which branch of an env-var wrapper runs, say — so a floor
+# raised to exactly one machine's number is unreachable on another. The trail absorbs
+# that; the ratchet still only moves up.
+raised=$(awk -v c="$coverage" 'BEGIN { printf "%.2f", c - 0.10 }')
+above=$(awk -v r="$raised" -v f="$floor" 'BEGIN { print (r > f) ? 1 : 0 }')
 if [ "$above" = 1 ] && [ "$check_only" = false ]; then
-  echo "$coverage" > "$FLOOR_FILE"
-  write_badge "$coverage"
-  echo "coverage: $coverage% — floor raised from $floor%, commit .coverage-floor and the badge"
+  echo "$raised" > "$FLOOR_FILE"
+  write_badge "$raised"
+  echo "coverage: $coverage% — floor raised from $floor% to $raised%, commit .coverage-floor and the badge"
 else
   echo "coverage: $coverage% (floor $floor%)"
 fi

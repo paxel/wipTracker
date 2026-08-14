@@ -64,7 +64,16 @@ pub(crate) fn x11_is_reachable() -> bool {
     let Some(display) = std::env::var_os("DISPLAY") else {
         return false;
     };
-    let display = display.to_string_lossy().into_owned();
+    x11_reachable_at(
+        &display.to_string_lossy(),
+        std::path::Path::new("/tmp/.X11-unix"),
+    )
+}
+
+/// The reachability test against a named socket directory, so it can be exercised with a
+/// scratch socket on any machine — the answer must not depend on where the tests run.
+#[cfg(unix)]
+fn x11_reachable_at(display: &str, sockets: &std::path::Path) -> bool {
     let Some((host, rest)) = display.split_once(':') else {
         return false;
     };
@@ -72,7 +81,7 @@ pub(crate) fn x11_is_reachable() -> bool {
         return true;
     }
     let number = rest.split('.').next().unwrap_or_default();
-    std::os::unix::net::UnixStream::connect(format!("/tmp/.X11-unix/X{number}")).is_ok()
+    std::os::unix::net::UnixStream::connect(sockets.join(format!("X{number}"))).is_ok()
 }
 
 /// Windows has no X server and no unix sockets to look for one on. The answer is never
@@ -826,6 +835,34 @@ mod tests {
     #[test]
     fn a_plain_x11_session_uses_x11() {
         assert_eq!(backend_for(false, true, None), Backend::X11);
+    }
+
+    /// Reachability is a socket check, exercised against a scratch socket so the answer
+    /// is the same on a workstation and a headless runner.
+    #[cfg(unix)]
+    #[test]
+    fn x11_reachability_is_the_socket_answering() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let _listener =
+            std::os::unix::net::UnixListener::bind(scratch.path().join("X7")).expect("bind");
+
+        assert!(x11_reachable_at(":7", scratch.path()), "socket answers");
+        assert!(
+            x11_reachable_at(":7.0", scratch.path()),
+            "screen suffix is fine"
+        );
+        assert!(
+            !x11_reachable_at(":8", scratch.path()),
+            "nothing listens on 8"
+        );
+        assert!(
+            !x11_reachable_at("not-a-display", scratch.path()),
+            "garbage is not a display"
+        );
+        assert!(
+            x11_reachable_at("otherhost:0", scratch.path()),
+            "a remote display is taken at its word"
+        );
     }
 
     #[test]
