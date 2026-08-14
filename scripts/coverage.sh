@@ -20,6 +20,16 @@ check_only=false
 
 floor=$(tr -d "[:space:]" < "$FLOOR_FILE")
 
+# The README's coverage badge reads this file from the default branch, via shields.io's
+# endpoint API — no coverage service involved. Kept in step with the floor, which the
+# ratchet keeps in step with reality.
+write_badge() {
+  color=$(awk -v c="$1" 'BEGIN { print (c >= 90) ? "brightgreen" : (c >= 75) ? "green" : (c >= 60) ? "yellow" : "red" }')
+  mkdir -p "$ROOT/.github/badges"
+  printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' \
+    "$1" "$color" > "$ROOT/.github/badges/coverage.json"
+}
+
 # The llvm engine, not the default ptrace one: only llvm collects coverage from the
 # binary the CLI tests spawn, via the inherited profile environment. Tarpaulin's last
 # line reads like "74.32% coverage, 1234/1660 lines covered".
@@ -40,7 +50,8 @@ fi
 above=$(awk -v c="$coverage" -v f="$floor" 'BEGIN { print (c > f) ? 1 : 0 }')
 if [ "$above" = 1 ] && [ "$check_only" = false ]; then
   echo "$coverage" > "$FLOOR_FILE"
-  echo "coverage: $coverage% — floor raised from $floor%, commit .coverage-floor"
+  write_badge "$coverage"
+  echo "coverage: $coverage% — floor raised from $floor%, commit .coverage-floor and the badge"
 else
   echo "coverage: $coverage% (floor $floor%)"
 fi

@@ -17,3 +17,14 @@ impl IdleProbe for SystemIdle {
             .map(|idle| idle.duration())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Callable anywhere: a session that will not say simply answers `None`.
+    #[test]
+    fn the_probe_answers_or_declines_but_never_panics() {
+        let _ = SystemIdle.idle();
+    }
+}

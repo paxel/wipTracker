@@ -233,8 +233,15 @@ impl WipTracker {
         app.idle_probe = Some(Box::new(SystemIdle));
         app.autostart = launcher::autostart_enabled();
         // Only Linux menus lose track of a binary outside the system prefixes; macOS has
-        // the bundle and Windows the Start-menu shortcut. Asked once, at most.
-        if cfg!(target_os = "linux") && !app.launcher_offer_dismissed && !launcher::is_visible() {
+        // the bundle and Windows the Start-menu shortcut. Asked once, at most — and never
+        // where viewports cannot be real windows (the test harness, the web build): there
+        // the offer would be drawn over the bar and swallow its clicks, and the answer
+        // would depend on whatever machine the tests happen to run on.
+        if cfg!(target_os = "linux")
+            && !app.launcher_offer_dismissed
+            && !cc.egui_ctx.embed_viewports()
+            && !launcher::is_visible()
+        {
             app.windows.launcher_offer = true;
         }
         app

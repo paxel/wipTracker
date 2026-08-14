@@ -299,6 +299,18 @@ mod tests {
             .expect("off again is fine");
     }
 
+    /// The environment readers answer on any machine with a home directory, and the
+    /// visibility check is callable whatever the machine looks like.
+    #[test]
+    fn the_environment_readers_answer() {
+        if std::env::var_os("HOME").is_some() {
+            assert!(data_home().is_some());
+            assert!(config_home().is_some());
+        }
+        let _ = is_visible();
+        let _ = autostart_enabled();
+    }
+
     /// Removing on a machine that never installed is not an error.
     #[test]
     fn remove_is_content_with_nothing_to_remove() {

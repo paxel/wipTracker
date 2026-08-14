@@ -39,27 +39,33 @@ impl Alarm for Beeper {
     /// Returns immediately: tones and notification happen on a scratch thread.
     fn sound(&self, task: &str) {
         let task = task.to_owned();
-        std::thread::spawn(move || {
-            notify(
-                &format!("{task} reached its daily timer"),
-                "The clock on the bar stays amber for the rest of the day.",
-            );
-            play(TASK_TONES);
-        });
+        std::thread::spawn(move || announce_task(&task));
     }
 
     /// Returns immediately, like [`Self::sound`]. Three falling tones where the task
     /// alarm rises — the day being over should not sound like one more task.
     fn sound_day_over(&self) {
-        std::thread::spawn(|| {
-            notify(
-                "The day's timer is reached",
-                "The bar clock turns red for the rest of the day. The reminder repeats \
-                 every ten minutes; the menu can mute it for today.",
-            );
-            play(DAY_TONES);
-        });
+        std::thread::spawn(announce_day_over);
     }
+}
+
+/// Everything a task alarm does, on whatever thread called it.
+fn announce_task(task: &str) {
+    notify(
+        &format!("{task} reached its daily timer"),
+        "The clock on the bar stays amber for the rest of the day.",
+    );
+    play(TASK_TONES);
+}
+
+/// Everything the day alarm does, on whatever thread called it.
+fn announce_day_over() {
+    notify(
+        "The day's timer is reached",
+        "The bar clock turns red for the rest of the day. The reminder repeats every \
+         ten minutes; the menu can mute it for today.",
+    );
+    play(DAY_TONES);
 }
 
 /// A desktop notification, so a muted machine still hears about its timers. Failure is
@@ -116,8 +122,7 @@ mod tests {
     /// daemon this must return quietly, and with them it costs one short blip.
     #[test]
     fn every_announcement_survives_a_headless_machine() {
-        play(TASK_TONES);
-        play(DAY_TONES);
-        notify("test", "test");
+        announce_task("test");
+        announce_day_over();
     }
 }
