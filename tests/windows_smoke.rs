@@ -468,3 +468,167 @@ fn the_menu_toggles_starting_with_the_session() {
         "the toggle removed it again"
     );
 }
+
+/// A menu entry under test: its label, whether its window is open, and how to close it.
+type MenuEntryCheck = (&'static str, fn(&WipTracker) -> bool, fn(&mut WipTracker));
+
+/// Every menu entry that opens a window really opens it.
+#[test]
+fn the_menu_opens_each_window() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, populated());
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+
+    // Each entry closes the menu, and the opened window is closed again before the next
+    // round so its contents cannot shadow the next entry's label.
+    let entries: &[MenuEntryCheck] = &[
+        (
+            "select",
+            |app| app.windows().stack,
+            |app| {
+                app.windows_mut().stack = false;
+            },
+        ),
+        (
+            "timer",
+            |app| app.windows().timer,
+            |app| {
+                app.windows_mut().timer = false;
+            },
+        ),
+        (
+            "groom",
+            |app| app.windows().groom,
+            |app| {
+                app.windows_mut().groom = false;
+            },
+        ),
+        (
+            "end day",
+            |app| app.windows().end_day,
+            |app| {
+                app.windows_mut().end_day = false;
+            },
+        ),
+        (
+            "week",
+            |app| app.windows().week,
+            |app| {
+                app.windows_mut().week = false;
+            },
+        ),
+        (
+            "revive",
+            |app| app.windows().revive,
+            |app| {
+                app.windows_mut().revive = false;
+            },
+        ),
+    ];
+    for (label, is_open, close) in entries {
+        harness.get_by_label(label).click_accesskit();
+        harness.run();
+        assert!(is_open(harness.state()), "{label} did not open its window");
+        close(harness.state_mut());
+        harness.state_mut().set_menu_open(true);
+        harness.run();
+    }
+}
+
+/// The task entries in the menu do what their bar gestures do.
+#[test]
+fn the_menu_drives_the_task_actions() {
+    use egui_kittest::kittest::Queryable as _;
+    use wiptracker::domain::task::PAUSE_NAME;
+
+    let mut tracker = populated();
+    tracker.set_day_timer(std::time::Duration::from_secs(8 * 3600));
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, tracker);
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+
+    let before = harness.state().tracker().focused_name().to_owned();
+    // The bar's plus button carries the same accessible label; the menu's entry is the
+    // later node, since the menu is drawn after the bar.
+    harness
+        .query_all_by_label("new task")
+        .last()
+        .expect("the menu shows a new task entry")
+        .click_accesskit();
+    harness.run();
+    assert_ne!(harness.state().tracker().focused_name(), before);
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness.get_by_label("pause").click_accesskit();
+    harness.run();
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness.get_by_label("end break").click_accesskit();
+    harness.run();
+    assert_ne!(harness.state().tracker().focused_name(), PAUSE_NAME);
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness.get_by_label("rename").click_accesskit();
+    harness.run();
+    assert!(harness.state().is_renaming());
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness.get_by_label("mute day reminder").click_accesskit();
+    harness.run();
+    let today = Local::now().date_naive();
+    assert!(harness.state().tracker().nag_muted(today));
+}
+
+/// The menu toggle flips the taskbar preference both ways. It is a stored preference —
+/// the window itself only picks it up on the next start.
+#[test]
+fn the_menu_toggles_the_taskbar_entry() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, Tracker::new(at(1, 9)));
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+    assert!(
+        harness.state().shows_in_taskbar(),
+        "the bar starts out in the taskbar"
+    );
+
+    harness
+        .get_by_label_contains("leave the taskbar")
+        .click_accesskit();
+    harness.run();
+    assert!(!harness.state().shows_in_taskbar());
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness
+        .get_by_label_contains("show up in the taskbar")
+        .click_accesskit();
+    harness.run();
+    assert!(harness.state().shows_in_taskbar());
+}
