@@ -135,6 +135,12 @@ fn main() -> eframe::Result<()> {
         .and_then(|(_, snapshot)| snapshot.as_ref())
         .and_then(|snapshot| snapshot.decorated)
         .unwrap_or_else(prefers_decorations);
+    let taskbar = opened
+        .as_ref()
+        .ok()
+        .and_then(|(_, snapshot)| snapshot.as_ref())
+        .and_then(|snapshot| snapshot.taskbar)
+        .unwrap_or(true);
 
     // The bar is narrower when it wears a window frame, because the grip that drags an
     // undecorated window is not needed then.
@@ -149,6 +155,13 @@ fn main() -> eframe::Result<()> {
         .with_decorations(decorated)
         .with_always_on_top()
         .with_resizable(false);
+    if !taskbar {
+        // Windows honors the flag; on X11 only the window type decides, and a Utility
+        // window is what EWMH taskbars leave out. Native Wayland knows neither.
+        viewport = viewport
+            .with_taskbar(false)
+            .with_window_type(egui::X11WindowType::Utility);
+    }
     if let Ok((_, Some(snapshot))) = &opened
         && let Some((x, y)) = snapshot.window_pos
         && !reset_position

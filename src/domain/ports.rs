@@ -32,6 +32,10 @@ pub struct Snapshot {
     /// Whether the window wears its window manager's frame. `None` means the user has not
     /// chosen, so the platform default applies.
     pub decorated: Option<bool>,
+    /// Whether the bar takes a place in the taskbar. `None` means the user has not
+    /// chosen, and the default is to show up there.
+    #[serde(default)]
+    pub taskbar: Option<bool>,
     /// Window position in logical points, as last seen.
     pub window_pos: Option<(f32, f32)>,
     /// Whether the offer to add WipTracker to the application menu was declined for good.

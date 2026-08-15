@@ -1,6 +1,6 @@
 [package]
 name = "wiptracker"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "A one-line always-on-top bar showing the task you are focused on right now"
 repository = "https://github.com/paxel/wipTracker"

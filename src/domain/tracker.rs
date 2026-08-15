@@ -131,8 +131,9 @@ impl Tracker {
             show_duration,
             decorated,
             window_pos,
-            // An app preference, not the tracker's: the caller sets it on the way out.
+            // App preferences, not the tracker's: the caller sets them on the way out.
             launcher_offer_dismissed: false,
+            taskbar: None,
         }
     }
 
@@ -865,6 +866,7 @@ mod tests {
             idle_pause: Duration::ZERO,
             show_duration: true,
             decorated: None,
+            taskbar: None,
             window_pos: None,
         };
         let tracker = Tracker::from_snapshot(&snapshot, at(1, 11));

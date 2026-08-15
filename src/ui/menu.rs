@@ -28,6 +28,8 @@ pub enum MenuAction {
     OpenRevive,
     ToggleDuration,
     ToggleDecorations,
+    /// Show the bar in the taskbar, or take it out of there.
+    ToggleTaskbar,
     /// Mute or unmute the repeating day reminder, for today only.
     ToggleNag,
     /// Start, or stop starting, WipTracker with the session.
@@ -49,6 +51,8 @@ pub struct MenuContext<'a> {
     pub paused: bool,
     pub show_duration: bool,
     pub decorated: bool,
+    /// Whether the bar takes a place in the taskbar.
+    pub taskbar_shown: bool,
     /// Whether a day timer is set at all; without one the reminder entry means nothing.
     pub day_timer_set: bool,
     /// Whether the repeating day reminder is muted for today.
@@ -110,6 +114,11 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "hide window frame"
     } else {
         "show window frame"
+    };
+    let taskbar_label = if context.taskbar_shown {
+        "leave the taskbar"
+    } else {
+        "show up in the taskbar"
     };
     let finish_label = if context.paused {
         "end break"
@@ -216,6 +225,14 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             action: MenuAction::ToggleDecorations,
             enabled: true,
             hint: "Give the window its normal title bar, so any desktop can move it.\nTakes \
+                   effect after a restart",
+            closes: false,
+        }),
+        Row::Item(Item {
+            label: taskbar_label.to_owned(),
+            action: MenuAction::ToggleTaskbar,
+            enabled: true,
+            hint: "The bar is always visible anyway, so its taskbar entry can go.\nTakes \
                    effect after a restart",
             closes: false,
         }),

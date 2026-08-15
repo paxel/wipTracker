@@ -146,6 +146,10 @@ fn install_theme(ctx: &egui::Context) {
     // moved further than a click may.
     ctx.options_mut(|options| options.input_options.max_click_duration = f64::INFINITY);
 
+    // Tooltips are reference material, not part of the interaction: they should only
+    // appear once the pointer has clearly settled, not while passing over a button.
+    ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 2.0);
+
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = theme::BACKGROUND;
     visuals.window_fill = theme::BACKGROUND;
@@ -173,6 +177,17 @@ pub struct WipTracker {
     show_duration: bool,
     /// `None` until the user chooses; see [`prefers_decorations`].
     decorated: Option<bool>,
+    /// Whether the bar takes a place in the taskbar. `None` until the user chooses,
+    /// and the default is to show up there.
+    taskbar: Option<bool>,
+    /// Whether the always-on-top level has been asked for again since the window became
+    /// visible. eframe opens every window hidden to avoid a white flash, and X11 window
+    /// managers ignore the keep-above request winit sends while a window is hidden — so
+    /// without repeating it the bar starts underneath everything.
+    level_asserted: bool,
+    /// Since when the pointer has been resting on a control with a hint. `None` while it
+    /// is not; the hint window waits out [`hint::HOVER_DELAY`] from here.
+    hint_since: Option<Instant>,
     store: Option<Box<dyn Store>>,
     /// Set when the store could not be read: the app then refuses to write over it.
     fatal: Option<String>,
@@ -235,6 +250,7 @@ impl WipTracker {
                 let mut app = Self::with_tracker(cc, tracker);
                 app.show_duration = snapshot.show_duration;
                 app.decorated = snapshot.decorated;
+                app.taskbar = snapshot.taskbar;
                 app.window_pos = snapshot.window_pos;
                 app.launcher_offer_dismissed = snapshot.launcher_offer_dismissed;
                 app
@@ -279,6 +295,9 @@ impl WipTracker {
             tracker,
             show_duration: true,
             decorated: None,
+            taskbar: None,
+            level_asserted: false,
+            hint_since: None,
             store: None,
             fatal: None,
             dirty: false,
@@ -318,6 +337,11 @@ impl WipTracker {
     /// Whether the window currently wears its window manager's frame.
     pub fn is_decorated(&self) -> bool {
         self.decorated.unwrap_or_else(prefers_decorations)
+    }
+
+    /// Whether the bar takes a place in the taskbar.
+    pub fn shows_in_taskbar(&self) -> bool {
+        self.taskbar.unwrap_or(true)
     }
 
     pub fn windows(&self) -> &OpenWindows {
@@ -378,6 +402,7 @@ impl WipTracker {
             self.tracker
                 .snapshot(self.show_duration, self.decorated, self.window_pos);
         snapshot.launcher_offer_dismissed = self.launcher_offer_dismissed;
+        snapshot.taskbar = self.taskbar;
         match store.save(&snapshot) {
             Ok(()) => {
                 self.dirty = false;
@@ -558,6 +583,17 @@ impl WipTracker {
                 });
                 self.dirty = true;
             }
+            MenuAction::ToggleTaskbar => {
+                // Like the frame: winit can only choose the X11 window type — which is
+                // what keeps a window out of the taskbar — while the window is created.
+                self.taskbar = Some(!self.shows_in_taskbar());
+                self.notice = Some(if self.shows_in_taskbar() {
+                    "Restart WipTracker to show up in the taskbar.".to_owned()
+                } else {
+                    "Restart WipTracker to leave the taskbar.".to_owned()
+                });
+                self.dirty = true;
+            }
             MenuAction::ToggleAutostart => {
                 let wanted = self.autostart != Some(true);
                 let exe = std::env::current_exe().unwrap_or_default();
@@ -637,6 +673,17 @@ impl eframe::App for WipTracker {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = Local::now();
+
+        // eframe opens the window hidden until the first frame is painted, and X11 window
+        // managers ignore the keep-above request winit sends while a window is hidden —
+        // so the always-on-top of the viewport builder never took effect. Asked again
+        // once the window is visible, which is any frame after the first, it sticks.
+        if !self.level_asserted && self.last_frame.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                egui::viewport::WindowLevel::AlwaysOnTop,
+            ));
+            self.level_asserted = true;
+        }
 
         if let Some(error) = self.fatal.clone() {
             egui::CentralPanel::default()
@@ -738,9 +785,18 @@ impl eframe::App for WipTracker {
         self.apply_bar_action(outcome.action, now, time);
 
         // The hint window only exists while there is something to explain, so it appears
-        // and disappears with the pointer.
+        // and disappears with the pointer — and only once the pointer has rested on the
+        // bar a while, so passing over it does not flash a window up. A running hold is
+        // shown at once: its hint is the progress indicator.
         if let Some(hint) = &outcome.hint {
-            hint::show(&ctx, hint, &placement);
+            let since = *self.hint_since.get_or_insert(Instant::now());
+            if hint.progress.is_some() || since.elapsed() >= hint::HOVER_DELAY {
+                hint::show(&ctx, hint, &placement);
+            } else {
+                ctx.request_repaint_after(hint::HOVER_DELAY - since.elapsed());
+            }
+        } else {
+            self.hint_since = None;
         }
 
         if self.menu_open {
@@ -751,6 +807,7 @@ impl eframe::App for WipTracker {
                     paused: self.tracker.focused_id() == PAUSE_ID,
                     show_duration: self.show_duration,
                     decorated: self.is_decorated(),
+                    taskbar_shown: self.shows_in_taskbar(),
                     day_timer_set: !self.tracker.day_timer().is_zero(),
                     nag_muted: self.tracker.nag_muted(now.date_naive()),
                     autostart: self.autostart,

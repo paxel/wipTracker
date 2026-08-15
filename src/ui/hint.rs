@@ -28,6 +28,11 @@ impl Hint {
     }
 }
 
+/// How long the pointer has to rest on the bar before a hover hint appears. A hint is
+/// reference material, not part of the interaction: it should not flash up on every pass
+/// of the pointer. A running hold skips the wait — its hint is the progress indicator.
+pub const HOVER_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Narrower than the bar in either of its widths, so a hint on a bar flush against the
 /// right screen edge sticks out no further than the bar already does — the same reasoning
 /// that lets the placement keep the bar's own left edge without clamping.
