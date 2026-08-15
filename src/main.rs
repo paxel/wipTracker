@@ -156,11 +156,10 @@ fn main() -> eframe::Result<()> {
         .with_always_on_top()
         .with_resizable(false);
     if !taskbar {
-        // Windows honors the flag; on X11 only the window type decides, and a Utility
-        // window is what EWMH taskbars leave out. Native Wayland knows neither.
-        viewport = viewport
-            .with_taskbar(false)
-            .with_window_type(egui::X11WindowType::Utility);
+        // Windows honors this at creation. On X11 the app asks the window manager for
+        // SKIP_TASKBAR itself once running — see `xdesk` — because winit has no API for
+        // it. Native Wayland knows no taskbar states at all.
+        viewport = viewport.with_taskbar(false);
     }
     if let Ok((_, Some(snapshot))) = &opened
         && let Some((x, y)) = snapshot.window_pos

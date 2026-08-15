@@ -12,6 +12,15 @@
 #   scripts/coverage.sh --check  run, fail below the floor, never write (CI)
 set -euo pipefail
 
+# awk's printf writes the decimal separator of the session's locale; a floor written as
+# "87,30" is then misread as 87 by every C-locale awk, CI's included.
+export LC_ALL=C
+
+# The X11 desktop tests only run where a real session exists, so they would make the
+# measurement differ between a workstation and the headless CI runner. The floor must
+# mean the same everywhere, so they sit the measurement out.
+export WIPTRACKER_SKIP_DESKTOP_TESTS=1
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 FLOOR_FILE="$ROOT/.coverage-floor"
 
@@ -33,7 +42,8 @@ write_badge() {
 # The llvm engine, not the default ptrace one: only llvm collects coverage from the
 # binary the CLI tests spawn, via the inherited profile environment.
 #
-# The beeper and the idle probe are excluded from the measurement, not from the tests:
+# The beeper, the idle probe and the X desktop adapter are excluded from the
+# measurement, not from the tests:
 # their line coverage depends on whether the machine has an audio device and an X server,
 # so including them made the number differ between a laptop and the CI runner — and a
 # floor raised on the richer machine was unreachable on the poorer one. Both are thin
@@ -42,6 +52,7 @@ write_badge() {
 # Tarpaulin's last line reads like "74.32% coverage, 1234/1660 lines covered".
 coverage=$(cd "$ROOT" && cargo tarpaulin --engine llvm --all-features --workspace \
   --exclude-files src/infrastructure/beeper.rs --exclude-files src/infrastructure/idle.rs \
+  --exclude-files src/infrastructure/xdesk.rs \
   --skip-clean --out Stdout 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
 
 if [ -z "$coverage" ]; then

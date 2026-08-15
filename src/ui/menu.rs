@@ -76,6 +76,14 @@ pub struct MenuContext<'a> {
     pub was_focused: bool,
 }
 
+/// Immediate on Linux, where the app can ask the window manager while running; Windows
+/// only decides while the window is created.
+#[cfg(target_os = "linux")]
+const TASKBAR_HINT: &str = "The bar is always visible anyway, so its taskbar entry can go";
+#[cfg(not(target_os = "linux"))]
+const TASKBAR_HINT: &str = "The bar is always visible anyway, so its taskbar entry can go.\n\
+                            Takes effect after a restart";
+
 const MENU_WIDTH: f32 = 270.0;
 const ROW_HEIGHT: f32 = 26.0;
 const SEPARATOR_HEIGHT: f32 = 6.0;
@@ -247,8 +255,7 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             label: taskbar_label.to_owned(),
             action: MenuAction::ToggleTaskbar,
             enabled: true,
-            hint: "The bar is always visible anyway, so its taskbar entry can go.\nTakes \
-                   effect after a restart",
+            hint: TASKBAR_HINT,
             closes: false,
         }),
     ]

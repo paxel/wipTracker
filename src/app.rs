@@ -10,6 +10,7 @@ use crate::domain::tracker::Tracker;
 use crate::infrastructure::beeper::Beeper;
 use crate::infrastructure::idle::SystemIdle;
 use crate::infrastructure::launcher;
+use crate::infrastructure::xdesk;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
 use crate::ui::format;
@@ -190,6 +191,11 @@ pub struct WipTracker {
     hint_since: Option<Instant>,
     /// Whether the hint window explains the bar's controls at all.
     hints: bool,
+    /// The X server connection the taskbar sweep talks over. `None` off X11, and until
+    /// the first frame tries; see `xdesk_tried`.
+    xdesk: Option<xdesk::XDesk>,
+    /// Whether connecting was attempted, so a machine without X is asked exactly once.
+    xdesk_tried: bool,
     store: Option<Box<dyn Store>>,
     /// Set when the store could not be read: the app then refuses to write over it.
     fatal: Option<String>,
@@ -303,6 +309,8 @@ impl WipTracker {
             level_asserted: false,
             hint_since: None,
             hints: true,
+            xdesk: None,
+            xdesk_tried: false,
             store: None,
             fatal: None,
             dirty: false,
@@ -620,14 +628,17 @@ impl WipTracker {
                 self.dirty = true;
             }
             MenuAction::ToggleTaskbar => {
-                // Like the frame: winit can only choose the X11 window type — which is
-                // what keeps a window out of the taskbar — while the window is created.
                 self.taskbar = Some(!self.shows_in_taskbar());
-                self.notice = Some(if self.shows_in_taskbar() {
-                    "Restart WipTracker to show up in the taskbar.".to_owned()
-                } else {
-                    "Restart WipTracker to leave the taskbar.".to_owned()
-                });
+                // On X11 the sweep applies it the next frame; Windows can only choose
+                // while the window is created, so there it is a restart away.
+                #[cfg(not(target_os = "linux"))]
+                {
+                    self.notice = Some(if self.shows_in_taskbar() {
+                        "Restart WipTracker to show up in the taskbar.".to_owned()
+                    } else {
+                        "Restart WipTracker to leave the taskbar.".to_owned()
+                    });
+                }
                 self.dirty = true;
             }
             MenuAction::ToggleAutostart => {
@@ -720,6 +731,16 @@ impl eframe::App for WipTracker {
             ));
             self.level_asserted = true;
         }
+
+        // The taskbar state of every window of this process, swept each frame: winit has
+        // no X11 API for SKIP_TASKBAR, so the app asks the server itself (a stub off
+        // Linux).
+        xdesk::sweep_frame(
+            &mut self.xdesk,
+            &mut self.xdesk_tried,
+            ctx.embed_viewports(),
+            self.taskbar.unwrap_or(true),
+        );
 
         if let Some(error) = self.fatal.clone() {
             egui::CentralPanel::default()
@@ -824,7 +845,13 @@ impl eframe::App for WipTracker {
         // and disappears with the pointer — and only once the pointer has rested on the
         // bar a while, so passing over it does not flash a window up. A running hold is
         // shown at once. Or not at all: the hints can be turned off in the menu.
-        if let Some(hint) = outcome.hint.as_ref().filter(|_| self.hints) {
+        // Never while the menu is up: the menu closes itself when the focus goes
+        // somewhere else, and the hint window appearing was exactly that.
+        if let Some(hint) = outcome
+            .hint
+            .as_ref()
+            .filter(|_| self.hints && !self.menu_open)
+        {
             let since = *self.hint_since.get_or_insert(Instant::now());
             if hint.progress.is_some() || since.elapsed() >= hint::HOVER_DELAY {
                 hint::show(&ctx, hint, &placement);

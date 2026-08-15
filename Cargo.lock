@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "wiptracker"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "eframe",
@@ -4800,6 +4800,7 @@ dependencies = [
  "thiserror 2.0.20",
  "user-idle",
  "winit",
+ "x11rb",
 ]
 
 [[package]]
