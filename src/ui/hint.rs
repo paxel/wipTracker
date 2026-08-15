@@ -1,4 +1,4 @@
-//! The window that explains what the bar's controls do, and how far a hold has come.
+//! The window that explains what the bar's controls do.
 //!
 //! It cannot be a tooltip. egui constrains a tooltip to the window it belongs to, and the
 //! bar's window is 32 pixels tall, so a three-line explanation is squeezed into a strip
@@ -15,7 +15,9 @@ use crate::ui::place::Placement;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hint {
     pub text: String,
-    /// How far a hold on this control has come, when one is running.
+    /// How far a hold on this control has come, when one is running. The control draws
+    /// the progress itself as its sweep; here it only marks that a hold is running, which
+    /// shows the hint at once instead of after [`HOVER_DELAY`].
     pub progress: Option<f32>,
 }
 
@@ -40,8 +42,6 @@ const WIDTH: f32 = 280.0;
 const TEXT_SIZE: f32 = 15.0;
 const LINE_HEIGHT: f32 = 20.0;
 const PADDING: f32 = 10.0;
-/// The side of the cat, which is only drawn while a hold is running.
-const CAT: f32 = 56.0;
 /// Roughly how many characters fit on a line at [`TEXT_SIZE`] in [`WIDTH`].
 const CHARS_PER_LINE: usize = 38;
 
@@ -53,55 +53,7 @@ fn wanted_height(hint: &Hint) -> f32 {
         .lines()
         .map(|line| 1 + line.chars().count() / CHARS_PER_LINE)
         .sum();
-    lines as f32 * LINE_HEIGHT
-        + 2.0 * PADDING
-        + if hint.progress.is_some() {
-            CAT + PADDING
-        } else {
-            0.0
-        }
-}
-
-/// The reading cat, loaded once and kept in the context.
-///
-/// The same raw buffer the taskbar icon is built from, so no image decoder is needed.
-fn cat(ctx: &Context) -> egui::TextureHandle {
-    let id = egui::Id::new("hint_cat");
-    if let Some(handle) = ctx.data(|data| data.get_temp::<egui::TextureHandle>(id)) {
-        return handle;
-    }
-    let image = egui::ColorImage::from_rgba_unmultiplied(
-        [64, 64],
-        include_bytes!("../../assets/icon.rgba"),
-    );
-    let handle = ctx.load_texture("hint_cat", image, egui::TextureOptions::LINEAR);
-    ctx.data_mut(|data| data.insert_temp(id, handle.clone()));
-    handle
-}
-
-/// Draws the cat greyed out, with the part that is already held painted back in.
-///
-/// Left to right, so it reads the same way as the sweep on the control being held.
-fn draw_cat(ui: &mut egui::Ui, progress: f32) {
-    let texture = cat(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(CAT, CAT), egui::Sense::hover());
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-    let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-    let painter = ui.painter();
-    painter.image(texture.id(), rect, whole, theme::HOLD_DIM);
-
-    let filled = progress.clamp(0.0, 1.0);
-    if filled <= 0.0 {
-        return;
-    }
-    painter.image(
-        texture.id(),
-        egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * filled, rect.height())),
-        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(filled, 1.0)),
-        egui::Color32::WHITE,
-    );
+    lines as f32 * LINE_HEIGHT + 2.0 * PADDING
 }
 
 /// Shows the hint next to the bar. On Wayland the placement is unknowable and the
@@ -140,10 +92,6 @@ pub fn show(ctx: &Context, hint: &Hint, placement: &Placement) {
                     .inner_margin(PADDING as i8),
             )
             .show(ctx, |ui| {
-                if let Some(progress) = hint.progress {
-                    draw_cat(ui, progress);
-                    ui.add_space(PADDING);
-                }
                 ui.label(
                     egui::RichText::new(&hint.text)
                         .size(TEXT_SIZE)
@@ -162,16 +110,6 @@ mod tests {
         let one = wanted_height(&Hint::text("Click: rename"));
         let three = wanted_height(&Hint::text("Click: rename\nHold: finish\nOr something"));
         assert!(three > one);
-    }
-
-    #[test]
-    fn a_hold_makes_room_for_the_cat() {
-        let plain = Hint::text("Click: rename");
-        let held = Hint {
-            progress: Some(0.5),
-            ..plain.clone()
-        };
-        assert!(wanted_height(&held) > wanted_height(&plain) + CAT - 1.0);
     }
 
     /// A line long enough to wrap counts for more than one.

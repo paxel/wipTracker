@@ -134,6 +134,7 @@ impl Tracker {
             // App preferences, not the tracker's: the caller sets them on the way out.
             launcher_offer_dismissed: false,
             taskbar: None,
+            hints: true,
         }
     }
 
@@ -867,6 +868,7 @@ mod tests {
             show_duration: true,
             decorated: None,
             taskbar: None,
+            hints: true,
             window_pos: None,
         };
         let tracker = Tracker::from_snapshot(&snapshot, at(1, 11));

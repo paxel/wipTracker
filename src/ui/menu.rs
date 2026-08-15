@@ -30,6 +30,8 @@ pub enum MenuAction {
     ToggleDecorations,
     /// Show the bar in the taskbar, or take it out of there.
     ToggleTaskbar,
+    /// Explain the bar's controls on hover, or stop doing so.
+    ToggleHints,
     /// Mute or unmute the repeating day reminder, for today only.
     ToggleNag,
     /// Start, or stop starting, WipTracker with the session.
@@ -53,6 +55,8 @@ pub struct MenuContext<'a> {
     pub decorated: bool,
     /// Whether the bar takes a place in the taskbar.
     pub taskbar_shown: bool,
+    /// Whether the hint window explains the bar's controls on hover.
+    pub hints_shown: bool,
     /// Whether a day timer is set at all; without one the reminder entry means nothing.
     pub day_timer_set: bool,
     /// Whether the repeating day reminder is muted for today.
@@ -119,6 +123,11 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "leave the taskbar"
     } else {
         "show up in the taskbar"
+    };
+    let hints_label = if context.hints_shown {
+        "hide hints"
+    } else {
+        "show hints"
     };
     let finish_label = if context.paused {
         "end break"
@@ -206,6 +215,12 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             MenuAction::ToggleDuration,
             true,
             "Show or hide the running clock on the bar",
+        ),
+        item(
+            hints_label,
+            MenuAction::ToggleHints,
+            true,
+            "Show or hide the window that explains the bar's controls on hover",
         ),
         item(
             autostart_label,

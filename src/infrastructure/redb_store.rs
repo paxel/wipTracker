@@ -27,6 +27,7 @@ const KEY_LAST_SEEN: &str = "last_seen";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
 const KEY_TASKBAR: &str = "taskbar";
+const KEY_HINTS: &str = "hints";
 const KEY_WINDOW_POS: &str = "window_pos";
 
 pub struct RedbStore {
@@ -135,6 +136,9 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .flatten();
+        let hints = parse(read_meta(KEY_HINTS)?)?
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
         let idle_pause = parse(read_meta(KEY_IDLE_PAUSE)?)?
             .map(serde_json::from_value::<std::time::Duration>)
             .transpose()
@@ -160,6 +164,7 @@ impl Store for RedbStore {
             show_duration,
             decorated,
             taskbar,
+            hints,
             window_pos,
             launcher_offer_dismissed,
             idle_pause,
@@ -216,6 +221,7 @@ impl Store for RedbStore {
             )?;
             put(KEY_DECORATED, &serde_json::json!(snapshot.decorated))?;
             put(KEY_TASKBAR, &serde_json::json!(snapshot.taskbar))?;
+            put(KEY_HINTS, &serde_json::json!(snapshot.hints))?;
             put(KEY_WINDOW_POS, &serde_json::json!(snapshot.window_pos))?;
         }
         transaction
@@ -298,6 +304,7 @@ mod tests {
             show_duration: false,
             decorated: Some(true),
             taskbar: Some(false),
+            hints: false,
             window_pos: Some((120.0, 40.0)),
         }
     }

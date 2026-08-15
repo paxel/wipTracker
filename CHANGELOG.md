@@ -2,29 +2,28 @@
 
 All notable changes to WipTracker are documented in this file.
 
-## [0.7.0]
+## [0.8.0]
 
 ### Added
 
-- **_leave the taskbar_ in the menu.** The bar is always visible anyway, so its taskbar
-  entry can go: one toggle keeps it out of the taskbar (and, on Windows, off the taskbar
-  icon list). Like the window frame it takes effect after a restart, and the entry comes
-  back with the same toggle.
+- **_hide hints_ in the menu.** The hover explanations can now be turned off entirely —
+  and back on — with one menu entry. On by default.
 
-### Changed
+### Removed
 
-- **Hints and tooltips wait two seconds before appearing.** The hint window used to pop
-  up the instant the pointer touched a control, which put an explanation in the way of
-  every pass over the bar. It now waits until the pointer has rested on the bar a while —
-  except during a hold, whose progress is shown at once. The tooltips inside the timer
-  and report windows wait the same two seconds.
+- **The cat is gone from the hint window.** During a hold it doubled the progress sweep
+  the held control already draws, so the hint window now shows only its text.
 
 ### Fixed
 
-- **The bar actually stays on top again.** eframe opens every window hidden until the
-  first frame is painted, and X11 window managers ignore the keep-above request winit
-  sends while a window is hidden — so the bar started underneath everything and stayed
-  there. The request is repeated once the window is visible, which is when it sticks.
+- **Upgrading no longer breaks the application-menu entry.** The entry named the binary
+  by the path it ran from — for Homebrew a directory that carries the version and is
+  deleted by the next upgrade, leaving a menu entry that points at nothing and, despite
+  `TryExec`, keeps being shown. Two repairs: the entry now names the binary's stable
+  `$PATH` name (Homebrew's `bin` symlink, repointed on every upgrade) instead of the
+  versioned directory — and at startup, an entry or autostart entry this app once wrote
+  that no longer names the running binary is silently rewritten, so existing broken
+  entries heal themselves on the first start after an update.
 
 ---
 

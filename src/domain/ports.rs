@@ -36,6 +36,9 @@ pub struct Snapshot {
     /// chosen, and the default is to show up there.
     #[serde(default)]
     pub taskbar: Option<bool>,
+    /// Whether the hint window explains the bar's controls on hover.
+    #[serde(default = "default_true")]
+    pub hints: bool,
     /// Window position in logical points, as last seen.
     pub window_pos: Option<(f32, f32)>,
     /// Whether the offer to add WipTracker to the application menu was declined for good.
@@ -45,6 +48,11 @@ pub struct Snapshot {
     /// because watching the user's input is opt-in.
     #[serde(default)]
     pub idle_pause: std::time::Duration,
+}
+
+/// What a bool the stored data does not mention yet means: the feature stays on.
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, thiserror::Error)]

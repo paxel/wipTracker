@@ -188,6 +188,8 @@ pub struct WipTracker {
     /// Since when the pointer has been resting on a control with a hint. `None` while it
     /// is not; the hint window waits out [`hint::HOVER_DELAY`] from here.
     hint_since: Option<Instant>,
+    /// Whether the hint window explains the bar's controls at all.
+    hints: bool,
     store: Option<Box<dyn Store>>,
     /// Set when the store could not be read: the app then refuses to write over it.
     fatal: Option<String>,
@@ -251,6 +253,7 @@ impl WipTracker {
                 app.show_duration = snapshot.show_duration;
                 app.decorated = snapshot.decorated;
                 app.taskbar = snapshot.taskbar;
+                app.hints = snapshot.hints;
                 app.window_pos = snapshot.window_pos;
                 app.launcher_offer_dismissed = snapshot.launcher_offer_dismissed;
                 app
@@ -265,13 +268,14 @@ impl WipTracker {
         // the bundle and Windows the Start-menu shortcut. Asked once, at most — and never
         // where viewports cannot be real windows (the test harness, the web build): there
         // the offer would be drawn over the bar and swallow its clicks, and the answer
-        // would depend on whatever machine the tests happen to run on.
-        if cfg!(target_os = "linux")
-            && !app.launcher_offer_dismissed
-            && !cc.egui_ctx.embed_viewports()
-            && !launcher::is_visible()
-        {
-            app.windows.launcher_offer = true;
+        // would depend on whatever machine the tests happen to run on. The same guard
+        // keeps the repair from rewriting the developing user's real entries out of a
+        // test run.
+        if cfg!(target_os = "linux") && !cc.egui_ctx.embed_viewports() {
+            app.repair_launcher();
+            if !app.launcher_offer_dismissed && !launcher::is_visible() {
+                app.windows.launcher_offer = true;
+            }
         }
         app
     }
@@ -298,6 +302,7 @@ impl WipTracker {
             taskbar: None,
             level_asserted: false,
             hint_since: None,
+            hints: true,
             store: None,
             fatal: None,
             dirty: false,
@@ -342,6 +347,11 @@ impl WipTracker {
     /// Whether the bar takes a place in the taskbar.
     pub fn shows_in_taskbar(&self) -> bool {
         self.taskbar.unwrap_or(true)
+    }
+
+    /// Whether the hint window explains the bar's controls on hover.
+    pub fn shows_hints(&self) -> bool {
+        self.hints
     }
 
     pub fn windows(&self) -> &OpenWindows {
@@ -403,6 +413,7 @@ impl WipTracker {
                 .snapshot(self.show_duration, self.decorated, self.window_pos);
         snapshot.launcher_offer_dismissed = self.launcher_offer_dismissed;
         snapshot.taskbar = self.taskbar;
+        snapshot.hints = self.hints;
         match store.save(&snapshot) {
             Ok(()) => {
                 self.dirty = false;
@@ -461,13 +472,34 @@ impl WipTracker {
         self.window_pos = Some((rect.min.x, rect.min.y));
     }
 
+    /// Rewrites launcher and autostart entries left pointing at a removed binary, which
+    /// is what a Homebrew upgrade leaves behind: the versioned directory the entry named
+    /// is gone, and menus keep showing the dead entry despite `TryExec`. Silent — done
+    /// before anyone clicks it. Public so tests can aim it at scratch directories.
+    pub fn repair_launcher(&mut self) {
+        let Some(data_home) = self.launcher_data_home.clone() else {
+            return;
+        };
+        let config_home = self
+            .autostart_config_home
+            .clone()
+            .or_else(launcher::config_home);
+        if let Ok(true) = launcher::repair_stale_entries(
+            &data_home,
+            config_home.as_deref(),
+            &launcher::stable_exe(),
+        ) {
+            launcher::refresh_caches(&data_home);
+        }
+    }
+
     /// Writes the launcher entry and icons, and says how it went in the menu's notice.
     fn install_launcher(&mut self) {
         let Some(data_home) = self.launcher_data_home.clone() else {
             self.notice = Some("No home directory to install into.".to_owned());
             return;
         };
-        let exe = std::env::current_exe().unwrap_or_default();
+        let exe = launcher::stable_exe();
         match launcher::install_into(&data_home, &exe) {
             Ok(()) => {
                 launcher::refresh_caches(&data_home);
@@ -583,6 +615,10 @@ impl WipTracker {
                 });
                 self.dirty = true;
             }
+            MenuAction::ToggleHints => {
+                self.hints = !self.hints;
+                self.dirty = true;
+            }
             MenuAction::ToggleTaskbar => {
                 // Like the frame: winit can only choose the X11 window type — which is
                 // what keeps a window out of the taskbar — while the window is created.
@@ -596,7 +632,7 @@ impl WipTracker {
             }
             MenuAction::ToggleAutostart => {
                 let wanted = self.autostart != Some(true);
-                let exe = std::env::current_exe().unwrap_or_default();
+                let exe = launcher::stable_exe();
                 let switched = match &self.autostart_config_home {
                     Some(config) => launcher::set_autostart_in(config, wanted, &exe),
                     None => launcher::set_autostart(wanted, &exe),
@@ -787,8 +823,8 @@ impl eframe::App for WipTracker {
         // The hint window only exists while there is something to explain, so it appears
         // and disappears with the pointer — and only once the pointer has rested on the
         // bar a while, so passing over it does not flash a window up. A running hold is
-        // shown at once: its hint is the progress indicator.
-        if let Some(hint) = &outcome.hint {
+        // shown at once. Or not at all: the hints can be turned off in the menu.
+        if let Some(hint) = outcome.hint.as_ref().filter(|_| self.hints) {
             let since = *self.hint_since.get_or_insert(Instant::now());
             if hint.progress.is_some() || since.elapsed() >= hint::HOVER_DELAY {
                 hint::show(&ctx, hint, &placement);
@@ -808,6 +844,7 @@ impl eframe::App for WipTracker {
                     show_duration: self.show_duration,
                     decorated: self.is_decorated(),
                     taskbar_shown: self.shows_in_taskbar(),
+                    hints_shown: self.hints,
                     day_timer_set: !self.tracker.day_timer().is_zero(),
                     nag_muted: self.tracker.nag_muted(now.date_naive()),
                     autostart: self.autostart,

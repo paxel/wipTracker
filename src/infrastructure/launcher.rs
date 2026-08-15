@@ -6,10 +6,15 @@
 //! `~/.local/share`. A package manager must not write into `$HOME`, but the app itself,
 //! asked by its user, may.
 //!
-//! The entry names the binary by absolute path in `Exec` and in `TryExec`. `TryExec` is
-//! what makes uninstalling clean without any hook: a desktop hides an entry whose
-//! `TryExec` no longer resolves, so removing the binary removes the menu entry from
-//! sight, wherever the entry file itself came from.
+//! The entry names the binary by absolute path in `Exec` and in `TryExec` — by its
+//! stable name where there is one: a Homebrew binary lives in a Cellar directory that
+//! carries the version and vanishes with every upgrade, while the `bin` symlink to it is
+//! repointed, so the symlink is what the entry must say (see [`stable_exe`]).
+//!
+//! `TryExec` asks the desktop to hide the entry once the binary is gone, but not every
+//! menu re-checks it, so it is a courtesy, not the mechanism. What actually keeps the
+//! entry alive across upgrades is [`repair_stale_entries`], run at startup: an entry
+//! this app once wrote and that no longer names the running binary is rewritten.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -68,6 +73,66 @@ pub fn is_visible() -> bool {
         .any(|dir| dir.join("applications/wiptracker.desktop").exists())
 }
 
+/// The path the entries should name for the running binary.
+///
+/// The binary itself, unless a directory on `$PATH` holds a name that resolves to it —
+/// then that name: it is the stable one. A Homebrew install runs from
+/// `Cellar/wiptracker/<version>/bin/`, which an upgrade deletes, while the
+/// `bin/wiptracker` symlink pointing at it is repointed to the new version.
+pub fn stable_exe() -> PathBuf {
+    let exe = std::env::current_exe().unwrap_or_default();
+    stable_exe_from(&exe, std::env::var_os("PATH"))
+}
+
+/// [`stable_exe`] against named inputs, so tests can lay out their own worlds.
+fn stable_exe_from(exe: &Path, path: Option<std::ffi::OsString>) -> PathBuf {
+    let Ok(real) = exe.canonicalize() else {
+        return exe.to_path_buf();
+    };
+    let Some(name) = exe.file_name() else {
+        return exe.to_path_buf();
+    };
+    let path = path.unwrap_or_default();
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let candidate = dir.join(name);
+        if candidate.canonicalize().is_ok_and(|found| found == real) {
+            return candidate;
+        }
+    }
+    exe.to_path_buf()
+}
+
+/// Rewrites entries this app once wrote when they no longer say what they would be
+/// written with today — after an upgrade moved the binary, they would otherwise go on
+/// pointing at the removed version. Entries that already match, and machines that never
+/// installed any, are left alone. Says whether anything was rewritten, so the caller
+/// knows to refresh the menu caches.
+pub fn repair_stale_entries(
+    data_home: &Path,
+    config_home: Option<&Path>,
+    exe: &Path,
+) -> io::Result<bool> {
+    let wanted = entry_for(exe);
+    let mut repaired = false;
+
+    let entry = data_home.join("applications/wiptracker.desktop");
+    if std::fs::read_to_string(&entry).is_ok_and(|found| found != wanted) {
+        install_into(data_home, exe)?;
+        repaired = true;
+    }
+    if let Some(config) = config_home {
+        let autostart = config.join("autostart/wiptracker.desktop");
+        if std::fs::read_to_string(&autostart).is_ok_and(|found| found != wanted) {
+            set_autostart_in(config, true, exe)?;
+            repaired = true;
+        }
+    }
+    Ok(repaired)
+}
+
 /// The entry as it is written: the shipped one, with the binary named absolutely.
 fn entry_for(exe: &Path) -> String {
     let exe = exe.display();
@@ -76,7 +141,7 @@ fn entry_for(exe: &Path) -> String {
         if let Some(rest) = line.strip_prefix("Exec=") {
             let _ = rest;
             written.push_str(&format!("Exec={exe}\n"));
-            // Hidden automatically once the binary is gone — see the module notes.
+            // Asks menus that honor it to hide the entry once the binary is gone.
             written.push_str(&format!("TryExec={exe}\n"));
         } else {
             written.push_str(line);
@@ -344,5 +409,72 @@ mod tests {
     fn remove_is_content_with_nothing_to_remove() {
         let scratch = tempfile::tempdir().expect("tempdir");
         remove_from(&scratch.path().join("a"), &scratch.path().join("b")).expect("remove");
+    }
+
+    /// The Homebrew shape: the binary in a versioned Cellar directory, a `bin` symlink
+    /// on `$PATH` pointing at it. The entry must name the symlink, which survives the
+    /// upgrade that deletes the Cellar directory.
+    #[test]
+    #[cfg(unix)]
+    fn the_stable_name_is_the_path_symlink_not_the_cellar() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let cellar = scratch.path().join("Cellar/wiptracker/0.6.0/bin");
+        std::fs::create_dir_all(&cellar).expect("cellar");
+        let real = cellar.join("wiptracker");
+        std::fs::write(&real, "").expect("binary");
+        let bin = scratch.path().join("bin");
+        std::fs::create_dir_all(&bin).expect("bin");
+        let link = bin.join("wiptracker");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+        let path = std::env::join_paths([&bin]).expect("join");
+        assert_eq!(stable_exe_from(&real, Some(path)), link);
+
+        // Without a matching name on PATH the binary keeps its own path.
+        let elsewhere = std::env::join_paths([scratch.path()]).expect("join");
+        assert_eq!(stable_exe_from(&real, Some(elsewhere)), real);
+        assert_eq!(stable_exe_from(&real, None), real);
+    }
+
+    /// After an upgrade the written entries name the removed version; the repair
+    /// rewrites both, and an entry that is already right is left untouched.
+    #[test]
+    fn stale_entries_are_repaired_and_fresh_ones_left_alone() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let data = scratch.path().join("share");
+        let config = scratch.path().join("config");
+        let old = Path::new("/opt/cellar/0.6.0/wiptracker");
+        let new = Path::new("/opt/bin/wiptracker");
+
+        install_into(&data, old).expect("install");
+        set_autostart_in(&config, true, old).expect("autostart");
+
+        assert!(repair_stale_entries(&data, Some(&config), new).expect("repair"));
+        let entry =
+            std::fs::read_to_string(data.join("applications/wiptracker.desktop")).expect("entry");
+        assert!(entry.contains("Exec=/opt/bin/wiptracker\n"));
+        let autostart = std::fs::read_to_string(config.join("autostart/wiptracker.desktop"))
+            .expect("autostart entry");
+        assert!(autostart.contains("Exec=/opt/bin/wiptracker\n"));
+
+        assert!(
+            !repair_stale_entries(&data, Some(&config), new).expect("repair again"),
+            "a second pass finds nothing to do"
+        );
+    }
+
+    /// A machine that never installed anything has nothing to repair — and, most
+    /// importantly, nothing gets written where nothing was.
+    #[test]
+    fn repair_writes_nothing_where_nothing_was_installed() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let data = scratch.path().join("share");
+        let config = scratch.path().join("config");
+        assert!(
+            !repair_stale_entries(&data, Some(&config), Path::new("/opt/wiptracker"))
+                .expect("repair")
+        );
+        assert!(!data.exists());
+        assert!(!config.exists());
     }
 }

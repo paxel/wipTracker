@@ -82,7 +82,7 @@ fn main() -> eframe::Result<()> {
                     eprintln!("wiptracker: no home directory to install into");
                     std::process::exit(1);
                 };
-                let exe = std::env::current_exe().unwrap_or_default();
+                let exe = launcher::stable_exe();
                 if let Err(error) = launcher::install_into(&data_home, &exe) {
                     eprintln!("wiptracker: {error}");
                     std::process::exit(1);

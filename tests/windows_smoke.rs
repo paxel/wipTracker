@@ -333,6 +333,34 @@ fn the_day_window_exports_json_to_the_clipboard() {
     }
 }
 
+/// After an upgrade the written entries name the removed binary; the repair pass a start
+/// runs rewrites them to the running one.
+#[test]
+fn a_stale_launcher_entry_is_repaired_on_start() {
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let data_home = scratch.path().join("share");
+    let config_home = scratch.path().join("config");
+    wiptracker::infrastructure::launcher::install_into(
+        &data_home,
+        std::path::Path::new("/opt/gone/0.6.0/wiptracker"),
+    )
+    .expect("install the stale entry");
+
+    let mut harness = harness(populated());
+    harness
+        .state_mut()
+        .set_launcher_data_home(data_home.clone());
+    harness.state_mut().set_autostart_config_home(config_home);
+    harness.state_mut().repair_launcher();
+
+    let entry = std::fs::read_to_string(data_home.join("applications/wiptracker.desktop"))
+        .expect("read entry");
+    assert!(
+        !entry.contains("/opt/gone/"),
+        "the dead path was rewritten: {entry}"
+    );
+}
+
 /// The launcher offer: installing writes the entry and icons into the given directory
 /// and never asks again; declining never asks again either.
 #[test]
@@ -631,4 +659,31 @@ fn the_menu_toggles_the_taskbar_entry() {
         .click_accesskit();
     harness.run();
     assert!(harness.state().shows_in_taskbar());
+}
+
+/// The menu toggle turns the hover hints off — and on again.
+#[test]
+fn the_menu_toggles_the_hints() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 480.0))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, Tracker::new(at(1, 9)));
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+    assert!(harness.state().shows_hints(), "hints start out on");
+
+    harness.get_by_label("hide hints").click_accesskit();
+    harness.run();
+    assert!(!harness.state().shows_hints());
+
+    harness.state_mut().set_menu_open(true);
+    harness.run();
+    harness.get_by_label("show hints").click_accesskit();
+    harness.run();
+    assert!(harness.state().shows_hints());
 }
