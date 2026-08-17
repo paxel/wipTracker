@@ -151,19 +151,24 @@ fn install_theme(ctx: &egui::Context) {
     // appear once the pointer has clearly settled, not while passing over a button.
     ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 2.0);
 
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = theme::BACKGROUND;
-    visuals.window_fill = theme::BACKGROUND;
+    let palette = theme::current();
+    let mut visuals = if palette.light {
+        egui::Visuals::light()
+    } else {
+        egui::Visuals::dark()
+    };
+    visuals.panel_fill = palette.background;
+    visuals.window_fill = palette.background;
     // The background behind a text field, which is what the rename editor sits on.
-    visuals.extreme_bg_color = theme::FIELD;
-    visuals.widgets.noninteractive.bg_fill = theme::BACKGROUND;
-    visuals.widgets.inactive.bg_fill = theme::BUTTON_IDLE;
-    visuals.widgets.inactive.weak_bg_fill = theme::BUTTON_IDLE;
-    visuals.widgets.hovered.bg_fill = theme::BUTTON_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = theme::BUTTON_HOVER;
-    visuals.widgets.active.bg_fill = theme::BUTTON_ACTIVE;
-    visuals.widgets.active.weak_bg_fill = theme::BUTTON_ACTIVE;
-    visuals.selection.bg_fill = theme::BUTTON_ACTIVE;
+    visuals.extreme_bg_color = palette.field;
+    visuals.widgets.noninteractive.bg_fill = palette.background;
+    visuals.widgets.inactive.bg_fill = palette.button_idle;
+    visuals.widgets.inactive.weak_bg_fill = palette.button_idle;
+    visuals.widgets.hovered.bg_fill = palette.button_hover;
+    visuals.widgets.hovered.weak_bg_fill = palette.button_hover;
+    visuals.widgets.active.bg_fill = palette.button_active;
+    visuals.widgets.active.weak_bg_fill = palette.button_active;
+    visuals.selection.bg_fill = palette.button_active;
     visuals.override_text_color = None;
 
     ctx.set_visuals_of(egui::Theme::Dark, visuals.clone());
@@ -191,6 +196,10 @@ pub struct WipTracker {
     hint_since: Option<Instant>,
     /// Whether the hint window explains the bar's controls at all.
     hints: bool,
+    /// Whether the light palette is used instead of the dark one.
+    light_mode: bool,
+    /// Hue rotation applied to the palette, in degrees. `None` means the stock colours.
+    hue_shift: Option<f32>,
     /// The X server connection the taskbar sweep talks over. `None` off X11, and until
     /// the first frame tries; see `xdesk_tried`.
     xdesk: Option<xdesk::XDesk>,
@@ -262,10 +271,16 @@ impl WipTracker {
                 app.hints = snapshot.hints;
                 app.window_pos = snapshot.window_pos;
                 app.launcher_offer_dismissed = snapshot.launcher_offer_dismissed;
+                app.light_mode = snapshot.light_mode;
+                app.hue_shift = snapshot.hue_shift;
                 app
             }
             None => Self::with_tracker(cc, Tracker::new(now)),
         };
+        // `with_tracker` installed the stock dark palette; the stored preference may say
+        // otherwise, so the theme is set again from it.
+        theme::set_current(theme::palette_for(app.light_mode, app.hue_shift));
+        install_theme(&cc.egui_ctx);
         app.store = Some(store);
         app.alarm = Some(Box::new(Beeper::new()));
         app.idle_probe = Some(Box::new(SystemIdle));
@@ -309,6 +324,8 @@ impl WipTracker {
             level_asserted: false,
             hint_since: None,
             hints: true,
+            light_mode: false,
+            hue_shift: None,
             xdesk: None,
             xdesk_tried: false,
             store: None,
@@ -422,6 +439,8 @@ impl WipTracker {
         snapshot.launcher_offer_dismissed = self.launcher_offer_dismissed;
         snapshot.taskbar = self.taskbar;
         snapshot.hints = self.hints;
+        snapshot.light_mode = self.light_mode;
+        snapshot.hue_shift = self.hue_shift;
         match store.save(&snapshot) {
             Ok(()) => {
                 self.dirty = false;
@@ -600,7 +619,24 @@ impl WipTracker {
         }
     }
 
-    fn apply_menu_action(&mut self, action: MenuAction, now: DateTime<Local>) {
+    /// Recomputes the palette from the current preferences and repaints everything with it.
+    fn apply_palette(&mut self, ctx: &egui::Context) {
+        theme::set_current(theme::palette_for(self.light_mode, self.hue_shift));
+        install_theme(ctx);
+        self.dirty = true;
+    }
+
+    /// A hue rotation nobody chose: seeded from the clock's nanoseconds, and kept away
+    /// from zero so every shuffle visibly changes something.
+    fn random_hue() -> f32 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.subsec_nanos())
+            .unwrap_or(0);
+        30.0 + (nanos % 300) as f32
+    }
+
+    fn apply_menu_action(&mut self, ctx: &egui::Context, action: MenuAction, now: DateTime<Local>) {
         match action {
             MenuAction::NewTask => self.add_task(now),
             MenuAction::Rename => self.start_rename(),
@@ -666,6 +702,18 @@ impl WipTracker {
                 self.tracker.set_nag_muted(day, !muted);
                 self.dirty = true;
             }
+            MenuAction::ToggleLightMode => {
+                self.light_mode = !self.light_mode;
+                self.apply_palette(ctx);
+            }
+            MenuAction::ShufflePalette => {
+                self.hue_shift = Some(Self::random_hue());
+                self.apply_palette(ctx);
+            }
+            MenuAction::ResetPalette => {
+                self.hue_shift = None;
+                self.apply_palette(ctx);
+            }
             MenuAction::OpenGroom => self.windows.groom = true,
             MenuAction::OpenEndDay => self.windows.end_day = true,
             MenuAction::OpenWeek => self.windows.week = true,
@@ -685,8 +733,8 @@ impl WipTracker {
         // explicit colour cannot be overridden by it.
         let output = egui::TextEdit::singleline(&mut rename.text)
             .id(id)
-            .text_color(theme::TEXT)
-            .background_color(theme::FIELD)
+            .text_color(theme::current().text)
+            .background_color(theme::current().field)
             .desired_width(theme::LABEL_WIDTH)
             .show(ui);
         let response = output.response;
@@ -757,7 +805,7 @@ impl eframe::App for WipTracker {
         // guard would never have noticed — which is the shape of the mac report that has
         // not been explained, so the app repairs itself instead of trusting one flag.
         if ctx.options(|options| options.theme_preference) != egui::ThemePreference::Dark
-            || ctx.style_of(egui::Theme::Dark).visuals.extreme_bg_color != theme::FIELD
+            || ctx.style_of(egui::Theme::Dark).visuals.extreme_bg_color != theme::current().field
         {
             install_theme(&ctx);
         }
@@ -875,6 +923,8 @@ impl eframe::App for WipTracker {
                     day_timer_set: !self.tracker.day_timer().is_zero(),
                     nag_muted: self.tracker.nag_muted(now.date_naive()),
                     autostart: self.autostart,
+                    light_mode: self.light_mode,
+                    palette_shuffled: self.hue_shift.is_some(),
                     notice: self.notice.as_deref(),
                     placement,
                     platform_notice: (choose_backend() == Backend::Wayland)
@@ -892,7 +942,7 @@ impl eframe::App for WipTracker {
                 }
             }
             self.menu_was_focused = outcome.was_focused;
-            self.apply_menu_action(outcome.action, now);
+            self.apply_menu_action(&ctx, outcome.action, now);
         }
 
         if self.windows.launcher_offer {

@@ -48,6 +48,12 @@ pub struct Snapshot {
     /// because watching the user's input is opt-in.
     #[serde(default)]
     pub idle_pause: std::time::Duration,
+    /// Whether the light palette is used instead of the dark one.
+    #[serde(default)]
+    pub light_mode: bool,
+    /// Hue rotation applied to the palette, in degrees. `None` means the stock colours.
+    #[serde(default)]
+    pub hue_shift: Option<f32>,
 }
 
 /// What a bool the stored data does not mention yet means: the feature stays on.

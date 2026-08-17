@@ -135,6 +135,8 @@ impl Tracker {
             launcher_offer_dismissed: false,
             taskbar: None,
             hints: true,
+            light_mode: false,
+            hue_shift: None,
         }
     }
 
@@ -870,6 +872,8 @@ mod tests {
             taskbar: None,
             hints: true,
             window_pos: None,
+            light_mode: false,
+            hue_shift: None,
         };
         let tracker = Tracker::from_snapshot(&snapshot, at(1, 11));
         assert_eq!(tracker.stack_bottom_first(), [PAUSE_ID, 8]);

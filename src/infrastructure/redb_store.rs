@@ -29,6 +29,8 @@ const KEY_DECORATED: &str = "decorated";
 const KEY_TASKBAR: &str = "taskbar";
 const KEY_HINTS: &str = "hints";
 const KEY_WINDOW_POS: &str = "window_pos";
+const KEY_LIGHT_MODE: &str = "light_mode";
+const KEY_HUE_SHIFT: &str = "hue_shift";
 
 pub struct RedbStore {
     database: Database,
@@ -152,6 +154,14 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .flatten();
+        let light_mode = parse(read_meta(KEY_LIGHT_MODE)?)?
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let hue_shift = parse(read_meta(KEY_HUE_SHIFT)?)?
+            .map(serde_json::from_value::<Option<f32>>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .flatten();
 
         Ok(Some(Snapshot {
             tasks,
@@ -168,6 +178,8 @@ impl Store for RedbStore {
             window_pos,
             launcher_offer_dismissed,
             idle_pause,
+            light_mode,
+            hue_shift,
         }))
     }
 
@@ -223,6 +235,8 @@ impl Store for RedbStore {
             put(KEY_TASKBAR, &serde_json::json!(snapshot.taskbar))?;
             put(KEY_HINTS, &serde_json::json!(snapshot.hints))?;
             put(KEY_WINDOW_POS, &serde_json::json!(snapshot.window_pos))?;
+            put(KEY_LIGHT_MODE, &serde_json::json!(snapshot.light_mode))?;
+            put(KEY_HUE_SHIFT, &serde_json::json!(snapshot.hue_shift))?;
         }
         transaction
             .commit()
@@ -306,6 +320,8 @@ mod tests {
             taskbar: Some(false),
             hints: false,
             window_pos: Some((120.0, 40.0)),
+            light_mode: true,
+            hue_shift: Some(140.0),
         }
     }
 

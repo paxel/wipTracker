@@ -86,7 +86,7 @@ pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
                     "Uninstalling stays clean: the entry hides itself as soon as the \
                      binary is gone, and `wiptracker --remove-launcher` deletes it.",
                 )
-                .color(theme::TEXT_DIM)
+                .color(theme::current().text_dim)
                 .small(),
             );
             ui.add_space(8.0);
@@ -175,7 +175,7 @@ fn export_button(
         if *copied {
             ui.label(
                 RichText::new("copied to clipboard")
-                    .color(theme::TEXT_DIM)
+                    .color(theme::current().text_dim)
                     .small(),
             );
         }
@@ -285,27 +285,36 @@ fn stack(
             ui.heading("Task stack");
             ui.label(
                 RichText::new("Top of the stack first. Click a task to work on it again.")
-                    .color(theme::TEXT_DIM)
+                    .color(theme::current().text_dim)
                     .small(),
             );
             ui.add_space(6.0);
 
+            // The top of the stack carries the visual weight: the top row is bigger, and
+            // the names fade towards the dim tone the deeper they sit.
+            let palette = theme::current();
             egui::Grid::new("stack_rows")
                 .num_columns(3)
                 .striped(true)
                 .min_col_width(120.0)
                 .show(ui, |ui| {
-                    for (id, name, today_time, total) in &rows {
+                    for (depth, (id, name, today_time, total)) in rows.iter().enumerate() {
                         let current = *id == focused;
+                        let emphasis = theme::stack_text(&palette, depth, rows.len());
+                        let mut text = RichText::new(if current {
+                            format!("● {name}")
+                        } else {
+                            name.clone()
+                        })
+                        .color(emphasis);
+                        if depth == 0 {
+                            text = text.size(15.0);
+                        }
                         if current {
-                            ui.label(
-                                RichText::new(format!("● {name}"))
-                                    .color(theme::TEXT)
-                                    .strong(),
-                            )
-                            .on_hover_text("The task you are working on right now");
+                            ui.label(text.strong())
+                                .on_hover_text("The task you are working on right now");
                         } else if ui
-                            .button(RichText::new(name).color(theme::TEXT))
+                            .button(text)
                             .on_hover_text("Left click: work on this task")
                             .clicked()
                         {
@@ -313,11 +322,11 @@ fn stack(
                         }
                         ui.label(
                             RichText::new(format!("today {}", format::coarse(*today_time)))
-                                .color(theme::TEXT_DIM),
+                                .color(theme::current().text_dim),
                         );
                         ui.label(
                             RichText::new(format!("total {}", format::coarse(*total)))
-                                .color(theme::TEXT_DIM),
+                                .color(theme::current().text_dim),
                         );
                         ui.end_row();
                     }
@@ -398,7 +407,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                      that long, and takes the quiet minutes off the task; off means \
                      WipTracker never watches your input. Zero means no alarm.",
                 )
-                .color(theme::TEXT_DIM)
+                .color(theme::current().text_dim)
                 .small(),
             );
             ui.add_space(6.0);
@@ -411,7 +420,9 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                         format::coarse(*timer)
                     };
                     if ui
-                        .button(RichText::new(format!("{name}   {label}")).color(theme::TEXT))
+                        .button(
+                            RichText::new(format!("{name}   {label}")).color(theme::current().text),
+                        )
                         .on_hover_text("Left click: choose how long this may run per day")
                         .clicked()
                     {
@@ -510,8 +521,10 @@ fn groom(
             for (id, name, total) in &tasks {
                 let mut checked = selection.contains(id);
                 ui.horizontal(|ui| {
-                    let box_response =
-                        ui.checkbox(&mut checked, RichText::new(name).color(theme::TEXT));
+                    let box_response = ui.checkbox(
+                        &mut checked,
+                        RichText::new(name).color(theme::current().text),
+                    );
                     if box_response.changed() {
                         if checked {
                             selection.insert(*id);
@@ -520,7 +533,9 @@ fn groom(
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(format::coarse(*total)).color(theme::TEXT_DIM));
+                        ui.label(
+                            RichText::new(format::coarse(*total)).color(theme::current().text_dim),
+                        );
                     });
                 });
             }
@@ -595,13 +610,13 @@ fn end_day(
                 )
             };
             let color = if tracker.day_over(today) {
-                theme::DAY_OVER
+                theme::current().day_over
             } else {
-                theme::TEXT
+                theme::current().text
             };
             ui.label(RichText::new(worked_line).color(color));
             if record.closed {
-                ui.label(RichText::new("This day is closed.").color(theme::TEXT_DIM));
+                ui.label(RichText::new("This day is closed.").color(theme::current().text_dim));
             }
             ui.separator();
 
@@ -614,9 +629,10 @@ fn end_day(
                     .min_col_width(160.0)
                     .show(ui, |ui| {
                         for (name, duration) in &rows {
-                            ui.label(RichText::new(name).color(theme::TEXT));
+                            ui.label(RichText::new(name).color(theme::current().text));
                             ui.label(
-                                RichText::new(format::coarse(*duration)).color(theme::TEXT_DIM),
+                                RichText::new(format::coarse(*duration))
+                                    .color(theme::current().text_dim),
                             );
                             ui.end_row();
                         }
@@ -637,7 +653,7 @@ fn end_day(
                     "Closing the day stamps its end time, saves, and quits. Open tasks stay \
                      on the stack for tomorrow.",
                 )
-                .color(theme::TEXT_DIM)
+                .color(theme::current().text_dim)
                 .small(),
             );
         },
@@ -717,11 +733,11 @@ fn week(
                         "week of {monday} (calendar week {})",
                         monday.iso_week().week()
                     ))
-                    .color(theme::TEXT_DIM),
+                    .color(theme::current().text_dim),
                 );
             });
             ui.horizontal(|ui| {
-                ui.label(RichText::new("jump to date").color(theme::TEXT_DIM));
+                ui.label(RichText::new("jump to date").color(theme::current().text_dim));
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut typed)
                         .hint_text("YYYY-MM-DD")
@@ -762,12 +778,13 @@ fn week(
                     ui.end_row();
 
                     for (name, per_day, total) in &task_rows {
-                        ui.label(RichText::new(name).color(theme::TEXT));
+                        ui.label(RichText::new(name).color(theme::current().text));
                         for duration in per_day {
                             ui.label(if duration.is_zero() {
-                                RichText::new("·").color(theme::TEXT_DIM)
+                                RichText::new("·").color(theme::current().text_dim)
                             } else {
-                                RichText::new(format::coarse(*duration)).color(theme::TEXT)
+                                RichText::new(format::coarse(*duration))
+                                    .color(theme::current().text)
                             });
                         }
                         ui.label(RichText::new(format::coarse(*total)).strong());
@@ -836,7 +853,7 @@ fn revive(
                 RichText::new(format!(
                     "The last {REVIVE_DAYS} days. Older tasks stay in the week overview."
                 ))
-                .color(theme::TEXT_DIM)
+                .color(theme::current().text_dim)
                 .small(),
             );
             ui.add_space(4.0);
@@ -852,11 +869,16 @@ fn revive(
                 .min_col_width(120.0)
                 .show(ui, |ui| {
                     for (id, name, total, finished_at) in &finished {
-                        if ui.button(RichText::new(name).color(theme::TEXT)).clicked() {
+                        if ui
+                            .button(RichText::new(name).color(theme::current().text))
+                            .clicked()
+                        {
                             revive_id = Some(*id);
                         }
-                        ui.label(RichText::new(format::coarse(*total)).color(theme::TEXT_DIM));
-                        ui.label(RichText::new(finished_at).color(theme::TEXT_DIM));
+                        ui.label(
+                            RichText::new(format::coarse(*total)).color(theme::current().text_dim),
+                        );
+                        ui.label(RichText::new(finished_at).color(theme::current().text_dim));
                         ui.end_row();
                     }
                 });

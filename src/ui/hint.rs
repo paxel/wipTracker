@@ -87,15 +87,15 @@ pub fn show(ctx: &Context, hint: &Hint, placement: &Placement) {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(theme::BACKGROUND)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                    .fill(theme::current().background)
+                    .stroke(egui::Stroke::new(1.0, theme::current().border))
                     .inner_margin(PADDING as i8),
             )
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new(&hint.text)
                         .size(TEXT_SIZE)
-                        .color(theme::TEXT),
+                        .color(theme::current().text),
                 );
             });
     });

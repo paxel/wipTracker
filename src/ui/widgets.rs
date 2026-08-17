@@ -28,7 +28,7 @@ pub fn tooltip(response: Response, text: impl Into<String>) -> Response {
             ui.label(
                 egui::RichText::new(text)
                     .size(TOOLTIP_TEXT_SIZE)
-                    .color(theme::TEXT),
+                    .color(theme::current().text),
             );
         });
     response
@@ -156,9 +156,9 @@ pub fn grip(ui: &mut Ui) -> Response {
     }
 
     let color = if response.hovered() {
-        theme::TEXT
+        theme::current().text
     } else {
-        theme::TEXT_DIM
+        theme::current().text_dim
     };
     let painter = ui.painter();
     let center = rect.center();
@@ -185,19 +185,19 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response
     }
 
     let fill = if response.is_pointer_button_down_on() {
-        theme::BUTTON_ACTIVE
+        theme::current().button_active
     } else if response.hovered() {
-        theme::BUTTON_HOVER
+        theme::current().button_hover
     } else {
         Color32::TRANSPARENT
     };
     if fill.a() > 0 {
         ui.painter().rect_filled(rect, 4.0, fill);
     }
-    sweep(ui, rect, press.progress, theme::HOLD_FILL);
+    sweep(ui, rect, press.progress, theme::current().hold_fill);
 
     let painter = ui.painter();
-    let stroke = Stroke::new(1.6, theme::TEXT);
+    let stroke = Stroke::new(1.6, theme::current().text);
     let center = rect.center();
     match icon {
         Icon::Plus => {
@@ -230,7 +230,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response
                 egui::pos2(trunk, bottom),
                 egui::pos2(center.x + 4.0, top + 1.0),
             ] {
-                painter.circle_filled(point, 1.6, theme::TEXT);
+                painter.circle_filled(point, 1.6, theme::current().text);
             }
         }
     }
@@ -259,13 +259,13 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
     }
 
     let (fill, text) = if !enabled {
-        (Color32::TRANSPARENT, theme::TEXT_DIM)
+        (Color32::TRANSPARENT, theme::current().text_dim)
     } else if response.is_pointer_button_down_on() {
-        (theme::BUTTON_ACTIVE, theme::TEXT)
+        (theme::current().button_active, theme::current().text)
     } else if response.hovered() {
-        (theme::BUTTON_HOVER, theme::TEXT)
+        (theme::current().button_hover, theme::current().text)
     } else {
-        (theme::BUTTON_IDLE, theme::TEXT)
+        (theme::current().button_idle, theme::current().text)
     };
     if fill.a() > 0 {
         ui.painter().rect_filled(rect, 4.0, fill);

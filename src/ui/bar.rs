@@ -93,8 +93,8 @@ fn drag_window(ui: &Ui, response: &Response) {
 
 pub fn frame() -> Frame {
     Frame::new()
-        .fill(theme::BACKGROUND)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .fill(theme::current().background)
+        .stroke(Stroke::new(1.0, theme::current().border))
         .inner_margin(Margin::symmetric(theme::BAR_MARGIN as i8, 0))
 }
 
@@ -163,20 +163,25 @@ fn note(hint: &mut Option<Hint>, response: &Response, press: Press, text: impl I
 /// One widget, not a label stacked on an invisible button: a second widget over the same
 /// rectangle takes the pointer for itself, and the hold then never starts. That leaves the
 /// sweep to be painted over the text rather than under it, which is what
-/// [`theme::HOLD_FILL_OVER`] is for.
+/// [`theme::Palette::hold_fill_over`] is for.
 fn show_name(ui: &mut Ui, name: &str, width: f32, hint: &mut Option<Hint>) -> Option<BarAction> {
     // Sized to the whole name column rather than to the text: a short name would otherwise
     // leave most of the column dead, and "hold the task name" has to mean the part of the
     // bar that looks like the task name.
     let response = ui.add_sized(
         egui::vec2(width, theme::BUTTON_SIZE.y),
-        Label::new(RichText::new(name).color(theme::TEXT))
+        Label::new(RichText::new(name).color(theme::current().text))
             .truncate()
             .selectable(false)
             .sense(Sense::click()),
     );
     let press = track_press(ui, &response, HOLD_FINISH, true);
-    sweep(ui, response.rect, press.progress, theme::HOLD_FILL_OVER);
+    sweep(
+        ui,
+        response.rect,
+        press.progress,
+        theme::current().hold_fill_over,
+    );
     note(hint, &response, press, format!("{name}\n\n{NAME_TOOLTIP}"));
     action_of(press, BarAction::StartRename, BarAction::FinishTask)
 }
@@ -265,9 +270,9 @@ fn show_inner(
 
                 if let Some(clock) = state.clock {
                     let color = match clock.over {
-                        Over::Day => theme::DAY_OVER,
-                        Over::Task => theme::OVER_LIMIT,
-                        Over::None => theme::TEXT_DIM,
+                        Over::Day => theme::current().day_over,
+                        Over::Task => theme::current().over_limit,
+                        Over::None => theme::current().text_dim,
                     };
                     let response = ui.add(
                         Label::new(RichText::new(clock.today).color(color).monospace())

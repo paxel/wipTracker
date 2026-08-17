@@ -213,12 +213,12 @@ fn the_palette_survives_a_light_desktop() {
     {
         assert_eq!(
             visuals.extreme_bg_color,
-            theme::FIELD,
+            theme::DARK.field,
             "the rename field's background comes from this"
         );
         assert_eq!(
             visuals.widgets.inactive.weak_bg_fill,
-            theme::BUTTON_IDLE,
+            theme::DARK.button_idle,
             "a themed button's fill comes from this"
         );
         assert!(

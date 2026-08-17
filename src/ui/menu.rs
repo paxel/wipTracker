@@ -36,6 +36,12 @@ pub enum MenuAction {
     ToggleNag,
     /// Start, or stop starting, WipTracker with the session.
     ToggleAutostart,
+    /// Switch between the dark and the light palette.
+    ToggleLightMode,
+    /// Give the palette a random new tint.
+    ShufflePalette,
+    /// Back to the stock colours.
+    ResetPalette,
 }
 
 pub struct MenuOutcome {
@@ -63,6 +69,10 @@ pub struct MenuContext<'a> {
     pub nag_muted: bool,
     /// Whether WipTracker starts with the session; `None` where that cannot be known.
     pub autostart: Option<bool>,
+    /// Whether the light palette is in use instead of the dark one.
+    pub light_mode: bool,
+    /// Whether a shuffle has tinted the palette, which is what a reset would undo.
+    pub palette_shuffled: bool,
     /// A short message shown at the bottom, such as "restart to apply".
     pub notice: Option<&'a str>,
     /// A standing message about the platform, shown under the notice. Unlike `notice` it
@@ -151,6 +161,11 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "stop starting with my session"
     } else {
         "start with my session"
+    };
+    let colours_label = if context.light_mode {
+        "dark colours"
+    } else {
+        "light colours"
     };
 
     vec![
@@ -258,6 +273,28 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             hint: TASKBAR_HINT,
             closes: false,
         }),
+        Row::Separator,
+        Row::Item(Item {
+            label: colours_label.to_owned(),
+            action: MenuAction::ToggleLightMode,
+            enabled: true,
+            hint: "Switch between the dark and the light palette",
+            closes: false,
+        }),
+        Row::Item(Item {
+            label: "shuffle colours".to_owned(),
+            action: MenuAction::ShufflePalette,
+            enabled: true,
+            hint: "Tint the palette with a random new hue — shuffle again for another",
+            closes: false,
+        }),
+        Row::Item(Item {
+            label: "reset colours".to_owned(),
+            action: MenuAction::ResetPalette,
+            enabled: context.palette_shuffled,
+            hint: "Back to the stock colours",
+            closes: false,
+        }),
     ]
 }
 
@@ -298,8 +335,8 @@ pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(theme::BACKGROUND)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                    .fill(theme::current().background)
+                    .stroke(egui::Stroke::new(1.0, theme::current().border))
                     .inner_margin(8),
             )
             .show(ctx, |ui| {
@@ -332,8 +369,8 @@ pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
                         }
 
                         for (notice, color) in [
-                            (context.notice, theme::OVER_LIMIT),
-                            (context.platform_notice, theme::TEXT_DIM),
+                            (context.notice, theme::current().over_limit),
+                            (context.platform_notice, theme::current().text_dim),
                         ] {
                             if let Some(notice) = notice {
                                 ui.add_space(6.0);
