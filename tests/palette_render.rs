@@ -111,6 +111,49 @@ fn the_palettes_render_readable() {
         light_text > 50,
         "light text should survive the shuffle, found {light_text} bright pixels"
     );
+    drop(harness);
 
+    // The menu drives the palette: light, shuffle, reset, and back to dark.
+    use egui_kittest::kittest::Queryable as _;
     theme::set_current(theme::DARK);
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 560.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, stacked_tracker());
+            app.set_menu_open(true);
+            app
+        });
+    harness.run();
+
+    harness.get_by_label("light colours").click_accesskit();
+    harness.run();
+    assert!(
+        theme::current().light,
+        "the toggle switches to the light palette"
+    );
+
+    harness.get_by_label("shuffle colours").click_accesskit();
+    harness.run();
+    let shuffled = theme::current();
+    assert!(
+        shuffled.light && shuffled != theme::LIGHT,
+        "a shuffle tints the palette it finds"
+    );
+
+    harness.get_by_label("reset colours").click_accesskit();
+    harness.run();
+    assert_eq!(
+        theme::current(),
+        theme::LIGHT,
+        "a reset restores the stock colours"
+    );
+
+    harness.get_by_label("dark colours").click_accesskit();
+    harness.run();
+    assert_eq!(
+        theme::current(),
+        theme::DARK,
+        "the toggle switches back to the dark palette"
+    );
 }
