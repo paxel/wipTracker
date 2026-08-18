@@ -2,7 +2,7 @@
 
 All notable changes to WipTracker are documented in this file.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-08-18
 
 ### Added
 
