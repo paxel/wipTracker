@@ -182,6 +182,11 @@ const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 /// How often the platform is asked where the monitors are, in seconds.
 const MONITORS_EVERY: f64 = 3.0;
 
+/// Whether the monitors are due another read: never read yet, or read long enough ago.
+fn monitors_due(read_at: Option<f64>, now: f64) -> bool {
+    read_at.is_none_or(|read_at| now - read_at >= MONITORS_EVERY)
+}
+
 pub struct WipTracker {
     tracker: Tracker,
     show_duration: bool,
@@ -508,10 +513,7 @@ impl WipTracker {
             return;
         }
         let now = ctx.input(|input| input.time);
-        if self
-            .monitors_read_at
-            .is_some_and(|read_at| now - read_at < MONITORS_EVERY)
-        {
+        if !monitors_due(self.monitors_read_at, now) {
             return;
         }
         self.monitors_read_at = Some(now);
@@ -1027,6 +1029,13 @@ mod tests {
     use super::*;
 
     /// XWayland is what makes always-on-top work again, so it wins whenever it answers.
+    #[test]
+    fn the_monitors_are_read_at_once_and_then_every_few_seconds() {
+        assert!(monitors_due(None, 0.0));
+        assert!(!monitors_due(Some(10.0), 10.0 + MONITORS_EVERY / 2.0));
+        assert!(monitors_due(Some(10.0), 10.0 + MONITORS_EVERY));
+    }
+
     #[test]
     fn a_wayland_session_with_xwayland_uses_x11() {
         assert_eq!(backend_for(true, true, None), Backend::X11);

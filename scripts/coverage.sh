@@ -42,17 +42,17 @@ write_badge() {
 # The llvm engine, not the default ptrace one: only llvm collects coverage from the
 # binary the CLI tests spawn, via the inherited profile environment.
 #
-# The beeper, the idle probe and the X desktop adapter are excluded from the
-# measurement, not from the tests:
+# The beeper, the idle probe, the X desktop adapter and the screen geometry adapter are
+# excluded from the measurement, not from the tests:
 # their line coverage depends on whether the machine has an audio device and an X server,
 # so including them made the number differ between a laptop and the CI runner — and a
-# floor raised on the richer machine was unreachable on the poorer one. Both are thin
+# floor raised on the richer machine was unreachable on the poorer one. All are thin
 # best-effort adapters; their tests still run everywhere.
 #
 # Tarpaulin's last line reads like "74.32% coverage, 1234/1660 lines covered".
 coverage=$(cd "$ROOT" && cargo tarpaulin --engine llvm --all-features --workspace \
   --exclude-files src/infrastructure/beeper.rs --exclude-files src/infrastructure/idle.rs \
-  --exclude-files src/infrastructure/xdesk.rs \
+  --exclude-files src/infrastructure/xdesk.rs --exclude-files src/infrastructure/screens.rs \
   --skip-clean --out Stdout 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
 
 if [ -z "$coverage" ]; then

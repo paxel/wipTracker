@@ -409,10 +409,25 @@ mod tests {
 
         set_launch_agent_in(&dir, true, Path::new("/opt/homebrew/bin/wiptracker")).expect("on");
         let written = std::fs::read_to_string(&target).expect("agent written");
-        assert!(written.starts_with("<?xml"));
-        assert!(written.contains("<string>dev.paxel.wiptracker</string>"));
-        assert!(written.contains("<string>/opt/homebrew/bin/wiptracker</string>"));
-        assert!(written.contains("<key>RunAtLoad</key>\n\t<true/>"));
+        // Byte for byte: launchd ignores a plist it cannot parse without a word.
+        assert_eq!(
+            written,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+             \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\">\n\
+             <dict>\n\
+             \t<key>Label</key>\n\
+             \t<string>dev.paxel.wiptracker</string>\n\
+             \t<key>ProgramArguments</key>\n\
+             \t<array>\n\
+             \t\t<string>/opt/homebrew/bin/wiptracker</string>\n\
+             \t</array>\n\
+             \t<key>RunAtLoad</key>\n\
+             \t<true/>\n\
+             </dict>\n\
+             </plist>\n"
+        );
 
         set_launch_agent_in(&dir, false, Path::new("/opt/homebrew/bin/wiptracker")).expect("off");
         assert!(!target.exists());

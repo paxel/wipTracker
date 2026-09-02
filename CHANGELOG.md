@@ -6,12 +6,11 @@ All notable changes to WipTracker are documented in this file.
 
 ### Fixed
 
-- **The menu, the hints and the report windows open on the monitor the bar is on.**
-  With several monitors they used to be placed as if the bar's monitor began at the
-  desktop's origin, which on a stacked layout put them behind the bar or off every
-  screen. The app now asks the platform where each monitor is — `NSScreen` on macOS,
-  RandR on X11, `EnumDisplayMonitors` on Windows — and keeps every window inside the
-  bar's own.
+- **The menu, the hints and the report windows stay on the monitor the bar is on.**
+  They flip above the bar when they would fall off the bottom of that monitor, and are
+  cut to its height, on every monitor rather than only the primary one. The app now asks
+  the platform where each monitor is — `NSScreen` on macOS, RandR on X11,
+  `EnumDisplayMonitors` on Windows — instead of guessing from the monitor's size alone.
 
 ### Changed
 
