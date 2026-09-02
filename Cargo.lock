@@ -4791,6 +4791,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "libc",
  "notify-rust",
  "redb",
  "rodio",

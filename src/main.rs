@@ -5,20 +5,23 @@ use wiptracker::app::{
     Backend, WAYLAND_NOTICE, WipTracker, backend_to_force, choose_backend, prefers_decorations,
 };
 use wiptracker::domain::ports::Store as _;
-use wiptracker::infrastructure::launcher;
 use wiptracker::infrastructure::redb_store::RedbStore;
+use wiptracker::infrastructure::{detach, launcher};
 use wiptracker::theme;
 
 const USAGE: &str = "\
 WipTracker — a one-line always-on-top bar showing the task you are focused on.
 
-Usage: wiptracker [--version] [--help] [--reset-position]
+Usage: wiptracker [--version] [--help] [--reset-position] [--foreground]
                   [--install-launcher] [--remove-launcher]
 
   --reset-position    Open where the window manager wants to, and forget the stored
                       position. Use it when the bar is remembered somewhere you cannot
                       see it — a monitor that has been unplugged, or a layout that has
                       changed.
+  --foreground        macOS only: stay attached to the terminal. Started from a shell,
+                      the bar otherwise detaches itself so the prompt comes back and
+                      closing the terminal does not close the bar.
   --install-launcher  Write the launcher entry and icons into ~/.local/share, so every
                       application menu can find WipTracker, and exit. The app also
                       offers this on its own when no menu can see it.
@@ -66,7 +69,8 @@ fn ask_for_backend(_options: &mut eframe::NativeOptions, _backend: Backend) {}
 
 fn main() -> eframe::Result<()> {
     let mut reset_position = false;
-    if let Some(argument) = std::env::args().nth(1) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    for argument in &args {
         match argument.as_str() {
             "--version" | "-V" => {
                 println!("wiptracker {}", env!("CARGO_PKG_VERSION"));
@@ -77,6 +81,8 @@ fn main() -> eframe::Result<()> {
                 return Ok(());
             }
             "--reset-position" => reset_position = true,
+            // Read by `detach::wanted` below; the flag itself asks for nothing else.
+            detach::FOREGROUND => {}
             "--install-launcher" => {
                 let Some(data_home) = launcher::data_home() else {
                     eprintln!("wiptracker: no home directory to install into");
@@ -110,6 +116,15 @@ fn main() -> eframe::Result<()> {
                 eprintln!("wiptracker: unknown argument {other:?}\n\n{USAGE}");
                 std::process::exit(2);
             }
+        }
+    }
+
+    // From a terminal on macOS the bar starts itself again, detached, and this process
+    // returns the prompt. Failing that it just runs here, attached, as it used to.
+    if detach::wanted(&args) {
+        match std::env::current_exe().and_then(|exe| detach::detach(&exe, &args)) {
+            Ok(()) => return Ok(()),
+            Err(error) => eprintln!("wiptracker: staying in the terminal: {error}"),
         }
     }
 

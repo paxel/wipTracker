@@ -97,6 +97,10 @@ Or use a package manager — each release pushes a formula and a manifest.
 brew install paxel/tap/wiptracker
 ```
 
+On macOS `wiptracker` typed into a terminal detaches itself: the prompt comes straight
+back, and closing the terminal leaves the bar running. `wiptracker --foreground` keeps it
+attached, for watching what it prints.
+
 **Scoop**, on Windows:
 
 ```sh

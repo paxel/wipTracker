@@ -25,6 +25,7 @@ fn help_describes_every_flag() {
         "--version",
         "--help",
         "--reset-position",
+        "--foreground",
         "--install-launcher",
         "--remove-launcher",
     ] {

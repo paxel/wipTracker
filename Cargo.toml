@@ -28,6 +28,10 @@ winit = { version = "0.30", default-features = false }
 # taskbar. Already in the tree through winit, so this costs no extra build.
 x11rb = "0.13"
 
+# `setsid`, which hands the terminal back when the bare binary is started from one.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies.tempfile]
 version = "3"
 
