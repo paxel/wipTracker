@@ -84,10 +84,12 @@ signed with an Apple Developer certificate, so Gatekeeper will refuse it on firs
 xattr -cr /Applications/WipTracker.app
 ```
 
-To have it start with your session, use menu → _start with my session_, or add it under
-_System Settings → General → Login Items_. The bar has no Dock icon and no Cmd-Tab entry
-by design — it is a
-one-line window, not an application to switch to — so _end day_ is how you close it.
+To have it start with your session, use menu → _start with my session_. It writes a
+launchd agent to `~/Library/LaunchAgents/dev.paxel.wiptracker.plist`, which macOS lists
+under _System Settings → General → Login Items → Allow in the Background_; switching it off
+in the menu deletes the file again. The bar has no Dock icon and no Cmd-Tab entry by
+design — it is a one-line window, not an application to switch to — so _end day_ is how
+you close it.
 
 Or use a package manager — each release pushes a formula and a manifest.
 

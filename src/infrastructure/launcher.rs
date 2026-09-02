@@ -207,14 +207,7 @@ pub fn autostart_enabled() -> Option<bool> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                "tell application \"System Events\" to get the name of every login item",
-            ])
-            .output()
-            .ok()?;
-        Some(String::from_utf8_lossy(&output.stdout).contains("WipTracker"))
+        Some(launch_agents_dir()?.join(LAUNCH_AGENT).exists())
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
@@ -246,25 +239,8 @@ pub fn set_autostart(enabled: bool, exe: &Path) -> io::Result<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        let script = if enabled {
-            format!(
-                "tell application \"System Events\" to make login item at end with properties \
-                 {{path:\"{}\", hidden:false, name:\"WipTracker\"}}",
-                exe.display()
-            )
-        } else {
-            "tell application \"System Events\" to delete (every login item whose name is \
-             \"WipTracker\")"
-                .to_owned()
-        };
-        let status = std::process::Command::new("osascript")
-            .args(["-e", &script])
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(io::Error::other("osascript refused"))
-        }
+        let dir = launch_agents_dir().ok_or_else(|| io::Error::other("no home directory"))?;
+        set_launch_agent_in(&dir, enabled, exe)
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
@@ -281,6 +257,59 @@ pub fn set_autostart_in(config_home: &Path, enabled: bool, exe: &Path) -> io::Re
     if enabled {
         std::fs::create_dir_all(target.parent().expect("autostart has a parent"))?;
         std::fs::write(target, entry_for(exe))
+    } else {
+        match std::fs::remove_file(target) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The launchd agent's file name under `~/Library/LaunchAgents`, which is also its label.
+pub const LAUNCH_AGENT: &str = "dev.paxel.wiptracker.plist";
+
+/// Where launchd reads a user's own agents from.
+#[cfg(target_os = "macos")]
+fn launch_agents_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/LaunchAgents"))
+}
+
+/// The launchd agent that starts the binary at login.
+///
+/// A plain file, like the Linux autostart entry: launchd reads every agent in the
+/// directory when the session starts, so writing it is the whole job and deleting it is
+/// the whole undo. Nothing is loaded or unloaded on the spot — loading a `RunAtLoad`
+/// agent would start a second bar right away, and unloading one would stop the running
+/// one. A login item would need `osascript` and an automation prompt, and macOS opens a
+/// bare binary named by a login item through Terminal.app; launchd starts it directly.
+pub fn launch_agent_for(exe: &Path) -> String {
+    let exe = exe.display();
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+         \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n\
+         <dict>\n\
+         \t<key>Label</key>\n\
+         \t<string>dev.paxel.wiptracker</string>\n\
+         \t<key>ProgramArguments</key>\n\
+         \t<array>\n\
+         \t\t<string>{exe}</string>\n\
+         \t</array>\n\
+         \t<key>RunAtLoad</key>\n\
+         \t<true/>\n\
+         </dict>\n\
+         </plist>\n"
+    )
+}
+
+/// The macOS half of [`set_autostart`], against a named directory, so tests can aim it
+/// at a scratch one on any platform.
+pub fn set_launch_agent_in(dir: &Path, enabled: bool, exe: &Path) -> io::Result<()> {
+    let target = dir.join(LAUNCH_AGENT);
+    if enabled {
+        std::fs::create_dir_all(dir)?;
+        std::fs::write(target, launch_agent_for(exe))
     } else {
         match std::fs::remove_file(target) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
@@ -367,6 +396,27 @@ mod tests {
         set_autostart_in(scratch.path(), false, Path::new("/opt/wiptracker")).expect("off");
         assert!(!target.exists());
         set_autostart_in(scratch.path(), false, Path::new("/opt/wiptracker"))
+            .expect("off again is fine");
+    }
+
+    /// The launchd agent names the binary, runs at login, and comes and goes with the
+    /// switch — off twice is fine, like the Linux entry.
+    #[test]
+    fn the_launch_agent_switches_on_and_off() {
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let dir = scratch.path().join("LaunchAgents");
+        let target = dir.join(LAUNCH_AGENT);
+
+        set_launch_agent_in(&dir, true, Path::new("/opt/homebrew/bin/wiptracker")).expect("on");
+        let written = std::fs::read_to_string(&target).expect("agent written");
+        assert!(written.starts_with("<?xml"));
+        assert!(written.contains("<string>dev.paxel.wiptracker</string>"));
+        assert!(written.contains("<string>/opt/homebrew/bin/wiptracker</string>"));
+        assert!(written.contains("<key>RunAtLoad</key>\n\t<true/>"));
+
+        set_launch_agent_in(&dir, false, Path::new("/opt/homebrew/bin/wiptracker")).expect("off");
+        assert!(!target.exists());
+        set_launch_agent_in(&dir, false, Path::new("/opt/homebrew/bin/wiptracker"))
             .expect("off again is fine");
     }
 
