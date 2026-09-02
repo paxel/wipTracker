@@ -10,12 +10,14 @@ use crate::domain::tracker::Tracker;
 use crate::infrastructure::beeper::Beeper;
 use crate::infrastructure::idle::SystemIdle;
 use crate::infrastructure::launcher;
+use crate::infrastructure::screens::Screens;
 use crate::infrastructure::xdesk;
 use crate::theme;
 use crate::ui::bar::{self, BarAction};
 use crate::ui::format;
 use crate::ui::hint;
 use crate::ui::menu::{self, MenuAction};
+use crate::ui::place::Placement;
 use crate::ui::windows::{self, OpenWindows};
 
 /// Which windowing backend the app asks for on Linux.
@@ -177,6 +179,8 @@ fn install_theme(ctx: &egui::Context) {
 
 /// How often state is written even when nothing changed, so a crash costs little.
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
+/// How often the platform is asked where the monitors are, in seconds.
+const MONITORS_EVERY: f64 = 3.0;
 
 pub struct WipTracker {
     tracker: Tracker,
@@ -205,6 +209,13 @@ pub struct WipTracker {
     xdesk: Option<xdesk::XDesk>,
     /// Whether connecting was attempted, so a machine without X is asked exactly once.
     xdesk_tried: bool,
+    /// What answers where the monitors are; opened on the first frame that needs it.
+    screens: Option<Screens>,
+    /// The monitors as last read, in egui points, for placing windows next to the bar.
+    monitors: Vec<egui::Rect>,
+    /// When `monitors` was last read, in egui's clock. Monitors come and go rarely, so
+    /// the platform is asked every few seconds rather than every frame.
+    monitors_read_at: Option<f64>,
     store: Option<Box<dyn Store>>,
     /// Set when the store could not be read: the app then refuses to write over it.
     fatal: Option<String>,
@@ -328,6 +339,9 @@ impl WipTracker {
             hue_shift: None,
             xdesk: None,
             xdesk_tried: false,
+            screens: None,
+            monitors: Vec::new(),
+            monitors_read_at: None,
             store: None,
             fatal: None,
             dirty: false,
@@ -485,6 +499,26 @@ impl WipTracker {
             bar::Over::None
         };
         Some((format::clock(today), tooltip, over))
+    }
+
+    /// Refreshes the monitor list every [`MONITORS_EVERY`] seconds. Embedded viewports —
+    /// the test harness — have no monitors to ask about.
+    fn refresh_monitors(&mut self, ctx: &egui::Context) {
+        if ctx.embed_viewports() {
+            return;
+        }
+        let now = ctx.input(|input| input.time);
+        if self
+            .monitors_read_at
+            .is_some_and(|read_at| now - read_at < MONITORS_EVERY)
+        {
+            return;
+        }
+        self.monitors_read_at = Some(now);
+        let screens = self.screens.get_or_insert_with(Screens::connect);
+        self.monitors = screens
+            .monitors(ctx.pixels_per_point(), ctx.zoom_factor())
+            .unwrap_or_default();
     }
 
     fn remember_window_pos(&mut self, ctx: &egui::Context) {
@@ -844,6 +878,7 @@ impl eframe::App for WipTracker {
         }
         ctx.request_repaint_after(Duration::from_secs(1));
         self.remember_window_pos(&ctx);
+        self.refresh_monitors(&ctx);
 
         let name = self.tracker.focused_name().to_owned();
         // The clock shows today's time so that the number agrees with the task's timer and
@@ -867,10 +902,12 @@ impl eframe::App for WipTracker {
             can_revive,
         };
         let time = ctx.input(|input| input.time);
-        let placement = crate::ui::place::Placement {
-            bar: self.window_rect,
-            monitor: ctx.input(|input| input.viewport().monitor_size),
-        };
+        let placement = Placement::new(
+            self.window_rect,
+            &self.monitors,
+            ctx.input(|input| input.viewport().monitor_size),
+        );
+        self.windows.placing.placement = placement;
 
         let mut outcome = bar::BarOutcome::default();
         let mut renaming = false;

@@ -14,6 +14,7 @@ use crate::domain::task::TaskId;
 use crate::domain::tracker::Tracker;
 use crate::theme;
 use crate::ui::format;
+use crate::ui::place::Placement;
 
 /// How far back the revive window looks.
 pub const REVIVE_DAYS: i64 = 30;
@@ -40,8 +41,17 @@ pub struct OpenWindows {
     /// Whether each window is showing its "copied to clipboard" confirmation.
     end_day_copied: bool,
     week_copied: bool,
-    /// Where each window was placed when it opened. Recomputing this every frame would
-    /// re-issue `with_position`, which drags an open report window along with the bar.
+    /// Where the bar is and where each window went; see [`Placing`].
+    pub placing: Placing,
+}
+
+/// What placing a window takes: where the bar and its screen are this frame — the app
+/// refreshes that before drawing — and where each open window was put when it opened.
+/// The latter is remembered because recomputing it every frame would re-issue
+/// `with_position`, which drags an open report window along with the bar.
+#[derive(Default)]
+pub struct Placing {
+    pub placement: Placement,
     placed: BTreeMap<&'static str, egui::Pos2>,
 }
 
@@ -61,7 +71,7 @@ pub enum LauncherChoice {
 /// Closing the window without choosing leaves the offer for the next start; only the
 /// explicit "don't ask again" is remembered.
 pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let mut choice = LauncherChoice::None;
     let mut still_open = true;
 
@@ -70,7 +80,7 @@ pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
         "launcher_offer",
         "WipTracker — application menu",
         [420.0, 230.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading("Add WipTracker to the application menu?");
@@ -101,7 +111,7 @@ pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.launcher_offer = still_open && choice == LauncherChoice::None;
     choice
 }
@@ -182,33 +192,12 @@ fn export_button(
     });
 }
 
-/// Where a report window should open.
-///
-/// Without a position the window manager decides, and it parks every window in the
-/// top-left corner. Near the bar is the useful answer when the bar's own position is
-/// known; centred on the screen is the fallback. On Wayland neither is possible — a client
-/// there can neither read nor set a window position — so the compositor keeps deciding.
-fn placement(ctx: &Context, size: [f32; 2]) -> Option<egui::Pos2> {
-    let bar = ctx.input(|i| i.viewport().outer_rect);
-    if let Some(bar) = bar {
-        // Below the bar, left edges aligned, nudged left if that would run off the screen.
-        let x = bar.min.x;
-        let y = bar.max.y + 8.0;
-        return Some(egui::pos2(x, y));
-    }
-    let monitor = ctx.input(|i| i.viewport().monitor_size)?;
-    Some(egui::pos2(
-        (monitor.x - size[0]).max(0.0) / 2.0,
-        (monitor.y - size[1]).max(0.0) / 2.0,
-    ))
-}
-
 fn window(
     ctx: &Context,
     id: &'static str,
     title: &str,
     size: [f32; 2],
-    placed: &mut BTreeMap<&'static str, egui::Pos2>,
+    placing: &mut Placing,
     open: &mut bool,
     contents: impl FnOnce(&mut egui::Ui),
 ) {
@@ -217,11 +206,15 @@ fn window(
         .with_inner_size(size)
         .with_min_inner_size([320.0, 200.0]);
     // Decided once, when the window opens: the bar can be dragged afterwards, and a fresh
-    // position on every frame would drag the report window along with it.
-    let position = placed.get(id).copied().or_else(|| {
-        placement(ctx, size).inspect(|position| {
-            placed.insert(id, *position);
-        })
+    // position on every frame would drag the report window along with it. Without a
+    // position the window manager decides, and on Wayland it always does.
+    let position = placing.placed.get(id).copied().or_else(|| {
+        placing
+            .placement
+            .window(egui::vec2(size[0], size[1]))
+            .inspect(|position| {
+                placing.placed.insert(id, *position);
+            })
     });
     if let Some(position) = position {
         builder = builder.with_position(position);
@@ -243,7 +236,7 @@ fn window(
 
     if !*open {
         // Reopening should place it again rather than restore wherever it last sat.
-        placed.remove(id);
+        placing.placed.remove(id);
     }
 }
 
@@ -255,7 +248,7 @@ fn stack(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let today = now.date_naive();
     let focused = tracker.focused_id();
     let rows: Vec<(TaskId, String, Duration, Duration)> = tracker
@@ -279,7 +272,7 @@ fn stack(
         "stack",
         "WipTracker — task stack",
         [420.0, 320.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading("Task stack");
@@ -334,7 +327,7 @@ fn stack(
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.stack = still_open;
     if let Some(id) = pick {
         let _ = tracker.select(id, now);
@@ -358,7 +351,7 @@ pub enum TimerTarget {
 
 /// The timer window: the whole day, the default new tasks inherit, and one row per task.
 fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let rows: Vec<(TimerTarget, String, Duration)> = [
         (
             TimerTarget::Day,
@@ -394,7 +387,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
         "timer",
         "WipTracker — timers",
         [420.0, 340.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading("Daily timers");
@@ -469,7 +462,7 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.timer = still_open;
     open.timer_editing = editing;
     if let Some((target, duration)) = chosen {
@@ -493,7 +486,7 @@ fn groom(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let mut finish_now = false;
     let mut still_open = true;
     let tasks: Vec<(TaskId, String, Duration)> = tracker
@@ -509,7 +502,7 @@ fn groom(
         "groom",
         "WipTracker — groom",
         [420.0, 320.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading("Open tasks");
@@ -549,7 +542,7 @@ fn groom(
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.groom = still_open;
     if finish_now {
         let ids: Vec<TaskId> = open.groom_selection.iter().copied().collect();
@@ -567,7 +560,7 @@ fn end_day(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> (bool, Option<String>) {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let today = now.date_naive();
     let record = tracker.day(today).cloned().unwrap_or_default();
     let rows: Vec<(String, Duration)> = tracker
@@ -585,7 +578,7 @@ fn end_day(
         "end_day",
         "WipTracker — end day",
         [460.0, 360.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading(format!("{today}"));
@@ -659,7 +652,7 @@ fn end_day(
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.end_day = still_open;
     open.end_day_copied = copied && still_open;
     if close_day {
@@ -676,7 +669,7 @@ fn week(
     tracker: &Tracker,
     now: DateTime<Local>,
 ) -> Option<String> {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let anchor = open.week_anchor.unwrap_or_else(|| now.date_naive());
     let monday = monday_of(anchor);
     let days: Vec<NaiveDate> = (0..7)
@@ -715,7 +708,7 @@ fn week(
         "week",
         "WipTracker — week",
         [720.0, 400.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.horizontal(|ui| {
@@ -805,7 +798,7 @@ fn week(
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.week = still_open;
     open.week_input = typed;
     open.week_copied = copied && still_open;
@@ -821,7 +814,7 @@ fn revive(
     tracker: &mut Tracker,
     now: DateTime<Local>,
 ) -> bool {
-    let mut placed = std::mem::take(&mut open.placed);
+    let mut placing = std::mem::take(&mut open.placing);
     let finished: Vec<(TaskId, String, Duration, String)> = tracker
         .recently_finished(REVIVE_DAYS, now)
         .iter()
@@ -845,7 +838,7 @@ fn revive(
         "revive",
         "WipTracker — revive",
         [460.0, 340.0],
-        &mut placed,
+        &mut placing,
         &mut still_open,
         |ui| {
             ui.heading("Finished tasks");
@@ -885,7 +878,7 @@ fn revive(
         },
     );
 
-    open.placed = placed;
+    open.placing = placing;
     open.revive = still_open;
     if let Some(id) = revive_id {
         let _ = tracker.revive(id, now);

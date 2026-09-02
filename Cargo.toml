@@ -25,12 +25,21 @@ user-idle = { version = "0.6.0", default-features = false, features = ["x11"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "0.30", default-features = false }
 # Speaks the bits of EWMH winit has no API for — keeping our windows out of the
-# taskbar. Already in the tree through winit, so this costs no extra build.
-x11rb = "0.13"
+# taskbar — and asks RandR where the monitors are. Already in the tree through winit, so
+# this costs no extra build.
+x11rb = { version = "0.13", features = ["randr"] }
 
-# `setsid`, which hands the terminal back when the bare binary is started from one.
+# `setsid`, which hands the terminal back when the bare binary is started from one, and
+# `NSScreen`, which says where the monitors are. The objc2 crates follow winit's own.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSGeometry"] }
+
+# `EnumDisplayMonitors`, which says where the monitors are.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
 [dev-dependencies.tempfile]
 version = "3"

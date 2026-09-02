@@ -4793,6 +4793,9 @@ dependencies = [
  "egui_kittest",
  "libc",
  "notify-rust",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "redb",
  "rodio",
  "serde",
@@ -4800,6 +4803,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "user-idle",
+ "windows-sys 0.61.2",
  "winit",
  "x11rb",
 ]

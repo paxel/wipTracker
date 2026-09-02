@@ -248,16 +248,15 @@ costs a few seconds at most. Back the file up by copying it; start fresh by dele
 - **The clock stops with the app**, except for short gaps: reopening within four hours on
   the same day credits the time in between to the task that was focused, so an accidental
   close costs nothing. A longer absence, or one crossing midnight, is never counted.
-- **A remembered position is used as given.** WipTracker is told the size of the monitor
-  the bar is on but never where that monitor starts, so on a desktop of several monitors
-  it cannot tell a legitimate position on the second screen from one pointing at a monitor
-  that has been unplugged. It no longer guesses: if the bar comes back somewhere you
-  cannot see it, start it once with `--reset-position` and it opens where the window
-  manager puts it.
+- **A remembered position is used as given.** WipTracker does not check it against the
+  monitors present, so a position on a screen that has since been unplugged is restored
+  as it was. If the bar comes back somewhere you cannot see it, start it once with
+  `--reset-position` and it opens where the window manager puts it.
 - **The menu and the hint open below the bar and keep its left edge**, rather than being
-  clamped to the monitor's width. Clamping moved them to the wrong screen from about half
-  way across a second monitor; they are no wider than the bar, so nothing is gained by it.
-  They still flip above the bar when they would fall off the bottom, on a single monitor.
+  clamped to the monitor's width; they are no wider than the bar, so nothing is gained by
+  it. They flip above the bar when they would fall off the bottom of the monitor the bar
+  is on. Where the platform does not say where the monitors are, the flip only works on
+  the primary one.
 - **The timer alarm needs an audio device.** Without one, WipTracker prints a single line
   to stderr and keeps tracking; the timers themselves still work, they just stay silent.
 
