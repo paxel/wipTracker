@@ -248,7 +248,7 @@ impl Store for RedbStore {
 ///
 /// Linux and the BSDs follow the XDG base directory spec, macOS uses
 /// `~/Library/Application Support`, Windows uses `%APPDATA%`.
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);

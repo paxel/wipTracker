@@ -89,6 +89,14 @@ pub trait IdleProbe: Send + Sync {
     fn idle(&self) -> Option<std::time::Duration>;
 }
 
+/// Somewhere the events that move time around are written down: a task switch, an
+/// auto-pause, a start, an exit. Best-effort and append-only, so that a day whose numbers
+/// look wrong can be explained afterwards instead of guessed at.
+pub trait Journal: Send + Sync {
+    /// Writes one event. The implementation adds the time.
+    fn record(&self, event: &str);
+}
+
 /// Somewhere a [`Snapshot`] can be kept.
 pub trait Store {
     /// Reads the stored snapshot, or `None` on a first run.

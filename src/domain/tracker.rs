@@ -216,26 +216,13 @@ impl Tracker {
             .map_or(Duration::ZERO, |record| record.duration_of(task))
     }
 
-    /// How far apart two frames may lie and still count as continuous work.
-    ///
-    /// Frames arrive about once a second while the app runs, so a much longer silence
-    /// means the machine was suspended or frozen — nobody was working. Two minutes is far
-    /// above any real stall, and short enough that a lid closed over lunch cannot credit
-    /// the afternoon. Deliberately stricter than [`Self::RECOVERABLE_GAP`], which covers
-    /// restarting the app on purpose; the caller watching the frames decides which of the
-    /// two applies and uses [`Self::skip_to`] for a sleep.
-    pub const CONTINUOUS_GAP: TimeDelta = TimeDelta::minutes(2);
-
-    /// Moves the accrual mark to `now` without crediting anything.
-    ///
-    /// For the span the machine slept through: the time passed, but nobody worked it.
-    pub fn skip_to(&mut self, now: DateTime<Local>) {
-        self.active_since = self.active_since.max(now);
-    }
-
     /// Credits the focused task with the time since the last accrual and resets the mark.
     ///
-    /// Time spanning midnight is split so that each calendar day is credited separately.
+    /// The whole span counts, however long: the focused task is what the user is working
+    /// on until they say otherwise, and a phone call, a closed lid or a walk to the
+    /// whiteboard is still that work. Only the pause task, chosen by hand or by
+    /// auto-pause, stops the clock. Time spanning midnight is split so that each calendar
+    /// day is credited separately.
     pub fn accrue(&mut self, now: DateTime<Local>) {
         let from = self.active_since;
         self.active_since = now;
@@ -1105,17 +1092,17 @@ mod tests {
         assert_eq!(restored.day_timer(), hours(8));
     }
 
-    /// A suspend is skipped, not credited: the mark moves, the numbers do not.
+    /// A long silence is still work: the task stays focused through a phone call or a
+    /// closed lid, so the whole span is credited, not dropped as if nobody had been there.
     #[test]
-    fn a_skipped_span_credits_nothing() {
+    fn a_long_silence_is_credited_in_full() {
         let mut tracker = Tracker::new(at(1, 9));
         let task = tracker.push_new_task(at(1, 9));
         tracker.accrue(at(1, 10));
-        tracker.skip_to(at(1, 18));
-        tracker.accrue(at(1, 18) + TimeDelta::seconds(1));
+        tracker.accrue(at(1, 18));
 
         let worked = tracker.duration_on(task, at(1, 9).date_naive());
-        assert_eq!(worked, hours(1) + Duration::from_secs(1));
+        assert_eq!(worked, hours(9));
     }
 
     /// Auto-pause is off until asked for, and then takes the idle tail off the task:

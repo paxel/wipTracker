@@ -4,11 +4,12 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
 
-use crate::domain::ports::{Alarm, IdleProbe, Snapshot, Store, StoreError};
+use crate::domain::ports::{Alarm, IdleProbe, Journal, Snapshot, Store, StoreError};
 use crate::domain::task::{PAUSE_ID, TaskId};
 use crate::domain::tracker::Tracker;
 use crate::infrastructure::beeper::Beeper;
 use crate::infrastructure::idle::SystemIdle;
+use crate::infrastructure::journal::FileJournal;
 use crate::infrastructure::launcher;
 use crate::infrastructure::screens::Screens;
 use crate::infrastructure::xdesk;
@@ -243,6 +244,11 @@ pub struct WipTracker {
     alarm: Option<Box<dyn Alarm>>,
     /// Knows how long the user has been away. `None` in tests that fake it directly.
     idle_probe: Option<Box<dyn IdleProbe>>,
+    /// Where the events that move time around are written down. `None` in tests.
+    journal: Option<Box<dyn Journal>>,
+    /// The task that was focused when the clock last ran, so a switch made anywhere —
+    /// bar, menu, stack window, auto-pause — is journaled from one place.
+    journaled_focus: Option<TaskId>,
     /// The tasks whose alarm sounded this session, kept for the tests to inspect.
     alarms_sounded: Vec<TaskId>,
     /// How often the day alarm sounded this session, kept for the tests to inspect.
@@ -252,9 +258,8 @@ pub struct WipTracker {
     /// Whether WipTracker starts with the session, read once at startup; `None` where
     /// the platform will not say, which disables the menu toggle.
     autostart: Option<bool>,
-    /// When the previous frame ran. A hole in the frame stream is a suspend: the span is
-    /// skipped rather than credited, or a closed lid would hand the task the whole night.
-    last_frame: Option<DateTime<Local>>,
+    /// Whether a frame has been painted yet, so the window is known to be visible.
+    painted: bool,
     /// Where the launcher entry would be installed. Settable so tests write to scratch.
     launcher_data_home: Option<std::path::PathBuf>,
     /// Overrides where the autostart entry goes, so tests never touch the real config.
@@ -277,6 +282,7 @@ impl WipTracker {
         snapshot: Option<Snapshot>,
     ) -> Self {
         let now = Local::now();
+        let last_seen = snapshot.as_ref().and_then(|snapshot| snapshot.last_seen);
         let mut app = match snapshot {
             Some(snapshot) => {
                 let tracker = Tracker::from_snapshot(&snapshot, now);
@@ -300,6 +306,8 @@ impl WipTracker {
         app.store = Some(store);
         app.alarm = Some(Box::new(Beeper::new()));
         app.idle_probe = Some(Box::new(SystemIdle));
+        app.journal = Some(Box::new(FileJournal::new(FileJournal::default_path())));
+        app.journal_start(last_seen, now);
         app.autostart = launcher::autostart_enabled();
         // Only Linux menus lose track of a binary outside the system prefixes; macOS has
         // the bundle and Windows the Start-menu shortcut. Asked once, at most — and never
@@ -359,11 +367,13 @@ impl WipTracker {
             notice: None,
             alarm: None,
             idle_probe: None,
+            journal: None,
+            journaled_focus: None,
             alarms_sounded: Vec::new(),
             day_alarms_sounded: 0,
             launcher_offer_dismissed: false,
             autostart: None,
-            last_frame: None,
+            painted: false,
             launcher_data_home: launcher::data_home(),
             autostart_config_home: None,
             rename: None,
@@ -424,6 +434,59 @@ impl WipTracker {
     /// Replaces the idle probe, so a test can be idle without waiting.
     pub fn set_idle_probe(&mut self, probe: Box<dyn IdleProbe>) {
         self.idle_probe = Some(probe);
+    }
+
+    /// Replaces the journal, so a test can read what the app writes down.
+    pub fn set_journal(&mut self, journal: Box<dyn Journal>) {
+        self.journal = Some(journal);
+    }
+
+    fn journal(&self, event: &str) {
+        if let Some(journal) = &self.journal {
+            journal.record(event);
+        }
+    }
+
+    /// The start line: which task is on top, and whether the gap since the last save was
+    /// credited to it (under four hours, same day) or left out.
+    fn journal_start(&mut self, last_seen: Option<DateTime<Local>>, now: DateTime<Local>) {
+        let focused = self.tracker.focused_name().to_owned();
+        let gap = last_seen.map(|last| {
+            let span = (now - last).to_std().unwrap_or_default();
+            let recovered =
+                now - last <= Tracker::RECOVERABLE_GAP && last.date_naive() == now.date_naive();
+            let verdict = if recovered {
+                "credited"
+            } else {
+                "not credited"
+            };
+            format!(
+                ", {} since {} {verdict}",
+                format::clock(span),
+                last.format("%Y-%m-%d %H:%M")
+            )
+        });
+        self.journal(&format!(
+            "start: focused '{focused}'{}",
+            gap.unwrap_or_default()
+        ));
+        self.journaled_focus = Some(self.tracker.focused_id());
+    }
+
+    /// Journals a change of the focused task, wherever it was made.
+    fn journal_focus_change(&mut self) {
+        let focused = self.tracker.focused_id();
+        if self.journaled_focus == Some(focused) {
+            return;
+        }
+        let was = self
+            .journaled_focus
+            .and_then(|id| self.tracker.task(id))
+            .map_or("nothing", |task| task.name.as_str())
+            .to_owned();
+        let name = self.tracker.focused_name().to_owned();
+        self.journaled_focus = Some(focused);
+        self.journal(&format!("focus '{name}' (was '{was}')"));
     }
 
     /// The tasks whose daily timer has gone off since the app started.
@@ -801,6 +864,59 @@ impl WipTracker {
 }
 
 impl eframe::App for WipTracker {
+    /// The clock. It lives here and not in [`Self::ui`] because eframe runs `ui` only
+    /// while the window is visible, and `logic` whenever a repaint was asked for, visible
+    /// or not. On macOS the bar is occluded on every other Space, behind any fullscreen
+    /// app, while the display sleeps and behind the lock screen; on X11 any window that
+    /// covers it does the same. With the clock in `ui`, nothing was credited while the
+    /// bar was out of sight — a quarter of a day spent in fullscreen went uncounted.
+    ///
+    /// There is deliberately no gap detection: a hole in the once-a-second stream, from a
+    /// sleep or from anything else, is credited like any other span. The focused task is
+    /// the user's word on what they are doing; only the pause task stops the clock.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.fatal.is_some() {
+            return;
+        }
+        let now = Local::now();
+
+        self.tracker.accrue(now);
+        self.journal_focus_change();
+        if !self.tracker.idle_pause().is_zero()
+            && let Some(idle) = self.idle_probe.as_ref().and_then(|probe| probe.idle())
+        {
+            let was = self.tracker.focused_name().to_owned();
+            if self.tracker.pause_after_idle(idle, now) {
+                self.journal(&format!(
+                    "auto-pause after {} idle: took that off '{was}'",
+                    format::clock(idle)
+                ));
+                self.journaled_focus = Some(PAUSE_ID);
+                self.dirty = true;
+            }
+        }
+        for id in self.tracker.take_due_alarms(now) {
+            self.alarms_sounded.push(id);
+            if let Some(alarm) = &self.alarm {
+                let name = self.tracker.task(id).map(|task| task.name.as_str());
+                alarm.sound(name.unwrap_or("a task"));
+            }
+            self.dirty = true;
+        }
+        if self.tracker.take_due_day_alarm(now) {
+            self.day_alarms_sounded += 1;
+            if let Some(alarm) = &self.alarm {
+                alarm.sound_day_over();
+            }
+            self.dirty = true;
+        }
+        // Asked for here rather than in `ui`: it is what keeps `logic` running while the
+        // window is hidden. The periodic save runs here too, so the stored `last_seen`
+        // stays fresh during a long spell out of sight.
+        ctx.request_repaint_after(Duration::from_secs(1));
+        self.maybe_save();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = Local::now();
@@ -809,12 +925,13 @@ impl eframe::App for WipTracker {
         // managers ignore the keep-above request winit sends while a window is hidden —
         // so the always-on-top of the viewport builder never took effect. Asked again
         // once the window is visible, which is any frame after the first, it sticks.
-        if !self.level_asserted && self.last_frame.is_some() {
+        if !self.level_asserted && self.painted {
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
                 egui::viewport::WindowLevel::AlwaysOnTop,
             ));
             self.level_asserted = true;
         }
+        self.painted = true;
 
         // The taskbar state of every window of this process, swept each frame: winit has
         // no X11 API for SKIP_TASKBAR, so the app asks the server itself (a stub off
@@ -846,39 +963,6 @@ impl eframe::App for WipTracker {
             install_theme(&ctx);
         }
 
-        // The first frame after a start is the restart-recovery span and stays credited;
-        // after that, a hole in the once-a-second frame stream is a suspend.
-        if self
-            .last_frame
-            .is_some_and(|last| now - last > Tracker::CONTINUOUS_GAP)
-        {
-            self.tracker.skip_to(now);
-        }
-        self.last_frame = Some(now);
-
-        self.tracker.accrue(now);
-        if !self.tracker.idle_pause().is_zero()
-            && let Some(idle) = self.idle_probe.as_ref().and_then(|probe| probe.idle())
-            && self.tracker.pause_after_idle(idle, now)
-        {
-            self.dirty = true;
-        }
-        for id in self.tracker.take_due_alarms(now) {
-            self.alarms_sounded.push(id);
-            if let Some(alarm) = &self.alarm {
-                let name = self.tracker.task(id).map(|task| task.name.as_str());
-                alarm.sound(name.unwrap_or("a task"));
-            }
-            self.dirty = true;
-        }
-        if self.tracker.take_due_day_alarm(now) {
-            self.day_alarms_sounded += 1;
-            if let Some(alarm) = &self.alarm {
-                alarm.sound_day_over();
-            }
-            self.dirty = true;
-        }
-        ctx.request_repaint_after(Duration::from_secs(1));
         self.remember_window_pos(&ctx);
         self.refresh_monitors(&ctx);
 
@@ -1014,11 +1098,18 @@ impl eframe::App for WipTracker {
         // Closing the day is the end of the session: there is nothing left for the bar to
         // show, and a clock left running overnight would credit the wrong day.
         if outcome.day_closed {
+            self.journal("day closed");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
     fn on_exit(&mut self) {
+        let today = self.tracker.worked_on(Local::now().date_naive());
+        self.journal(&format!(
+            "exit: focused '{}', worked today {}",
+            self.tracker.focused_name(),
+            format::clock(today)
+        ));
         self.dirty = true;
         self.maybe_save();
     }
