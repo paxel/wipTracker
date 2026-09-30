@@ -433,10 +433,13 @@ fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
         "nothing has been finished, so the hold leads nowhere"
     );
 
-    let mut tracker = Tracker::new(at(9));
-    let id = tracker.push_new_task(at(9));
+    // Finished relative to the real clock: the revive window only looks back 30 days, so
+    // a fixed date would age out and turn the test red on its own.
+    let start = Local::now() - chrono::TimeDelta::hours(2);
+    let mut tracker = Tracker::new(start);
+    let id = tracker.push_new_task(start);
     tracker.rename(id, "write the report").expect("rename");
-    tracker.finish_focused(at(10));
+    tracker.finish_focused(start + chrono::TimeDelta::hours(1));
 
     let mut revivable = harness(tracker);
     settle(&mut revivable);
