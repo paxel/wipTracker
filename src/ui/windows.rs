@@ -394,9 +394,9 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
             ui.label(
                 RichText::new(
                     "When a task has been worked on this long today, WipTracker beeps once. \
-                     The whole day's timer counts every task together, breaks excluded, \
+                     The whole day's timer counts every task together, pauses excluded, \
                      sounds its own noise, and turns the bar clock red. Auto-pause \
-                     starts the break by itself once keyboard and mouse have been quiet \
+                     starts the pause by itself once keyboard and mouse have been quiet \
                      that long, and takes the quiet minutes off the task; off means \
                      WipTracker never watches your input. Zero means no alarm.",
                 )
@@ -594,10 +594,10 @@ fn end_day(
             let worked = tracker.worked_on(today);
             let day_timer = tracker.day_timer();
             let worked_line = if day_timer.is_zero() {
-                format!("Worked {} (breaks not counted)", format::coarse(worked))
+                format!("Worked {} (pauses not counted)", format::coarse(worked))
             } else {
                 format!(
-                    "Worked {} of {} (breaks not counted)",
+                    "Worked {} of {} (pauses not counted)",
                     format::coarse(worked),
                     format::coarse(day_timer)
                 )

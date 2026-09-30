@@ -55,7 +55,7 @@ pub struct MenuOutcome {
 pub struct MenuContext<'a> {
     /// Whether there is a finished task that could be put back on the stack.
     pub can_revive: bool,
-    /// Whether the focused task is the break, which cannot be renamed or paused again.
+    /// Whether the focused task is the pause task, which cannot be renamed or paused again.
     pub paused: bool,
     pub show_duration: bool,
     pub decorated: bool,
@@ -148,7 +148,7 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
         "show hints"
     };
     let finish_label = if context.paused {
-        "end break"
+        "end pause"
     } else {
         "finish"
     };
@@ -191,7 +191,7 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             "pause",
             MenuAction::Pause,
             !context.paused,
-            "Take a break — holding the fork button on the bar does the same",
+            "Pause — holding the fork button on the bar does the same",
         ),
         Row::Separator,
         item(

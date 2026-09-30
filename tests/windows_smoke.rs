@@ -432,7 +432,7 @@ impl wiptracker::domain::ports::IdleProbe for AlwaysIdle {
     }
 }
 
-/// With auto-pause configured, a long-idle user is moved to the break by the app loop
+/// With auto-pause configured, a long-idle user is moved to the pause task by the app loop
 /// itself; without the setting nothing watches at all.
 #[test]
 fn a_long_idle_starts_the_break_when_asked_to() {
@@ -608,7 +608,7 @@ fn the_menu_drives_the_task_actions() {
 
     harness.state_mut().set_menu_open(true);
     harness.run();
-    harness.get_by_label("end break").click_accesskit();
+    harness.get_by_label("end pause").click_accesskit();
     harness.run();
     assert_ne!(harness.state().tracker().focused_name(), PAUSE_NAME);
 

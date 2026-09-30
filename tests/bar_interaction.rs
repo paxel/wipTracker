@@ -261,7 +261,7 @@ fn holding_the_fork_takes_a_break() {
     hold(&mut harness, button_center(2.0), HOLD_QUICK);
     assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
 
-    // The task is still open underneath, so it is only a break, not a finish.
+    // The task is still open underneath, so it is only a pause, not a finish.
     assert!(
         harness
             .state()

@@ -17,7 +17,7 @@ pub enum BarAction {
     StartRename,
     /// Show the task stack so another task can be picked.
     OpenStack,
-    /// Straight to a break.
+    /// Straight to the pause task.
     SwitchToPause,
     /// Put a finished task back on the stack.
     OpenRevive,
@@ -31,8 +31,8 @@ pub const HOLD_FINISH: f32 = 2.0;
 pub const HOLD_QUICK: f32 = 0.5;
 
 const NAME_TOOLTIP: &str = "Click: rename this task\nHold for 2 seconds: finish it, or end \
-                            the break when paused";
-const FORK_TOOLTIP: &str = "Click: show the task stack\nHold: take a break";
+                            the pause when paused";
+const FORK_TOOLTIP: &str = "Click: show the task stack\nHold: pause";
 const PLUS_TOOLTIP: &str = "Click: start a new task\nHold: put a finished task back";
 const MENU_TOOLTIP: &str = "Click: open or close the menu\nHold: set the daily timer";
 const GRIP_TOOLTIP: &str = "Drag to move the bar";

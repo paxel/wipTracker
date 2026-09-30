@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub type TaskId = u64;
 
-/// The built-in break task. It is always present, can never be finished or renamed, and
+/// The built-in pause task. It is always present, can never be finished or renamed, and
 /// is focused whenever no other task is open.
 pub const PAUSE_ID: TaskId = 0;
 pub const PAUSE_NAME: &str = "pause";

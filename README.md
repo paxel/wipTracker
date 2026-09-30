@@ -17,13 +17,13 @@ actually went — not how long a ticket was open.
 
 ![What each part of the bar does](docs/bar-anatomy.svg)
 
-| Where       | Click      | Hold                                  |
-| ----------- | ---------- | ------------------------------------- |
-| drag handle | —          | drag to move (frameless windows only) |
-| task name   | rename     | 2 seconds: finish it, or end a break  |
-| fork        | task stack | take a break                          |
-| `+`         | new task   | put a finished task back              |
-| `≡`         | menu       | daily timer                           |
+| Where       | Click      | Hold                                   |
+| ----------- | ---------- | -------------------------------------- |
+| drag handle | —          | drag to move (frameless windows only)  |
+| task name   | rename     | 2 seconds: finish it, or end the pause |
+| fork        | task stack | pause                                  |
+| `+`         | new task   | put a finished task back               |
+| `≡`         | menu       | daily timer                            |
 
 Left button only — no right click, no middle click, no double click, so a trackpad or a
 touchscreen can reach everything. While you hold, the control fills up to show how far the
@@ -126,9 +126,9 @@ the bar; the one underneath stops collecting time but stays open.
 opens in its own window: focused task first, everything else in stack order, `pause` last,
 each row with today's time and its total. Click one to work on it again.
 
-**Take a break.** Hold the fork button, or pick `pause` in the task stack. It is a
-permanent task that can never be finished, so breaks show up in the reports like everything
-else. Holding the name for two seconds while `pause` is on top ends the break and returns
+**Pause.** Hold the fork button, or pick `pause` in the task stack. It is a
+permanent task that can never be finished, so pauses show up in the reports like everything
+else. Holding the name for two seconds while `pause` is on top ends the pause and returns
 you to what you were doing.
 
 **Finish a task.** Hold the task name for two seconds. The bar fills up while you hold,
@@ -143,13 +143,13 @@ that task has been worked on that long today — and the clock on the bar turns 
 rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
 default applies to every task created afterwards.
 
-**Let the break start itself.** _auto-pause when idle_, in the same window, is off until
+**Let the pause start itself.** _auto-pause when idle_, in the same window, is off until
 you choose a span. Chosen, WipTracker switches to `pause` once keyboard and mouse have
-been quiet that long, and takes the quiet minutes off the task — the break counts from
+been quiet that long, and takes the quiet minutes off the task — the pause counts from
 when you stopped, not from when it was noticed. Off means your input is never watched.
 
 **Set a limit for the whole day.** The same window's first row, _the whole day_, counts
-every task together — breaks not counted. Reaching it plays a distinct noise and turns the
+every task together — pauses not counted. Reaching it plays a distinct noise and turns the
 bar clock red for the rest of the day, outranking the amber. The alarm then repeats every
 ten minutes until menu → _mute day reminder_ silences it; the muting lasts until midnight,
 so tomorrow it reminds again on its own. The end-day report shows the count behind it.

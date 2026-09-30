@@ -272,7 +272,7 @@ impl Tracker {
         id
     }
 
-    /// Finishes the focused task, or ends a break if the pause task is focused.
+    /// Finishes the focused task, or ends the pause if the pause task is focused.
     ///
     /// Returns the id of the task that was finished, if any.
     pub fn finish_focused(&mut self, now: DateTime<Local>) -> Option<TaskId> {
@@ -358,7 +358,7 @@ impl Tracker {
 
     /// How long was worked on `day`, the pause task excluded.
     ///
-    /// This is the day counter: breaks do not count, and neither does time when the app
+    /// This is the worked time: pauses do not count, and neither does time when the app
     /// was closed. It is not the wall-clock span of the day — that is what the day
     /// record's start and end are for.
     pub fn worked_on(&self, day: NaiveDate) -> Duration {
@@ -375,14 +375,14 @@ impl Tracker {
         self.idle_pause
     }
 
-    /// Sets how long the user may be idle before the break starts on its own. Zero
+    /// Sets how long the user may be idle before the pause starts on its own. Zero
     /// switches auto-pause off — the default, since watching input is opt-in.
     pub fn set_idle_pause(&mut self, idle_pause: Duration) {
         self.idle_pause = idle_pause;
     }
 
-    /// Starts the break because the user has been idle for `idle`, if that is wanted,
-    /// long enough, and a task is focused at all. Returns whether the break began.
+    /// Starts the pause because the user has been idle for `idle`, if that is wanted,
+    /// long enough, and a task is focused at all. Returns whether the pause began.
     ///
     /// The credited tail is taken back: the task stops counting from the moment the
     /// input stopped, not from the moment the threshold was noticed — otherwise every
@@ -1119,7 +1119,7 @@ mod tests {
     }
 
     /// Auto-pause is off until asked for, and then takes the idle tail off the task:
-    /// the break starts when the input stopped, not when the threshold was noticed.
+    /// the pause starts when the input stopped, not when the threshold was noticed.
     #[test]
     fn idling_long_enough_starts_the_break_and_uncredits_the_tail() {
         let mut tracker = Tracker::new(at(1, 9));
