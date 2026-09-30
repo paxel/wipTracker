@@ -15,6 +15,7 @@ use crate::domain::tracker::Tracker;
 use crate::theme;
 use crate::ui::format;
 use crate::ui::place::Placement;
+use crate::ui::widgets;
 
 /// How far back the revive window looks.
 pub const REVIVE_DAYS: i64 = 30;
@@ -174,8 +175,7 @@ fn export_button(
     payload: &mut Option<String>,
 ) {
     ui.horizontal(|ui| {
-        if ui
-            .button("export")
+        if widgets::action_button(ui, "export", false)
             .on_hover_text("Copy this data as JSON, one row per task per day")
             .clicked()
         {
@@ -189,6 +189,13 @@ fn export_button(
                     .small(),
             );
         }
+    });
+}
+
+/// A grid cell with its text against the right edge, so durations line up on the digits.
+fn right_aligned(ui: &mut egui::Ui, text: RichText) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(text);
     });
 }
 
@@ -581,8 +588,8 @@ fn end_day(
         &mut placing,
         &mut still_open,
         |ui| {
-            ui.heading(format!("{today}"));
-            ui.add_space(4.0);
+            let palette = theme::current();
+            ui.heading(today.format("%A, %-d %B %Y").to_string());
             let started = record
                 .started_at
                 .map_or("—".to_owned(), |time| time.format("%H:%M").to_string());
@@ -590,63 +597,87 @@ fn end_day(
                 || now.format("%H:%M").to_string(),
                 |time| time.format("%H:%M").to_string(),
             );
-            ui.label(format!("Day started {started}, last activity {ended}"));
+            ui.label(
+                RichText::new(format!("started {started}, last activity {ended}"))
+                    .color(palette.text_dim),
+            );
+            ui.add_space(10.0);
+
+            // The number the window is about, set larger than everything around it.
             let worked = tracker.worked_on(today);
             let day_timer = tracker.day_timer();
-            let worked_line = if day_timer.is_zero() {
-                format!("Worked {} (pauses not counted)", format::coarse(worked))
-            } else {
-                format!(
-                    "Worked {} of {} (pauses not counted)",
-                    format::coarse(worked),
-                    format::coarse(day_timer)
-                )
-            };
             let color = if tracker.day_over(today) {
-                theme::current().day_over
+                palette.day_over
             } else {
-                theme::current().text
+                palette.text
             };
-            ui.label(RichText::new(worked_line).color(color));
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format::coarse(worked))
+                        .size(26.0)
+                        .color(color),
+                );
+                let rest = if day_timer.is_zero() {
+                    "worked, pauses not counted".to_owned()
+                } else {
+                    format!(
+                        "of {} worked, pauses not counted",
+                        format::coarse(day_timer)
+                    )
+                };
+                ui.label(RichText::new(rest).color(palette.text_dim));
+            });
             if record.closed {
-                ui.label(RichText::new("This day is closed.").color(theme::current().text_dim));
+                ui.label(RichText::new("This day is closed.").color(palette.text_dim));
             }
+            ui.add_space(10.0);
             ui.separator();
+            ui.add_space(6.0);
 
             if rows.is_empty() {
-                ui.label("No time collected today yet.");
+                ui.label(RichText::new("No time collected today yet.").color(palette.text_dim));
             } else {
                 egui::Grid::new("end_day_rows")
                     .num_columns(2)
                     .striped(true)
-                    .min_col_width(160.0)
+                    .min_col_width(180.0)
+                    .spacing([24.0, 6.0])
                     .show(ui, |ui| {
+                        ui.label(RichText::new("task").color(palette.text_dim).small());
+                        right_aligned(ui, RichText::new("today").color(palette.text_dim).small());
+                        ui.end_row();
                         for (name, duration) in &rows {
-                            ui.label(RichText::new(name).color(theme::current().text));
-                            ui.label(
-                                RichText::new(format::coarse(*duration))
-                                    .color(theme::current().text_dim),
+                            ui.label(RichText::new(name).color(palette.text));
+                            right_aligned(
+                                ui,
+                                RichText::new(format::coarse(*duration)).color(palette.text),
                             );
                             ui.end_row();
                         }
-                        ui.label(RichText::new("total").strong());
-                        ui.label(RichText::new(format::coarse(record.total())).strong());
+                        ui.label(RichText::new("total").strong().color(palette.text));
+                        right_aligned(
+                            ui,
+                            RichText::new(format::coarse(record.total()))
+                                .strong()
+                                .color(palette.text),
+                        );
                         ui.end_row();
                     });
             }
 
-            ui.add_space(8.0);
+            ui.add_space(14.0);
             export_button(ui, tracker, &[today], &mut copied, &mut payload);
-            ui.add_space(8.0);
-            if ui.button("Close day").clicked() {
+            ui.add_space(10.0);
+            if widgets::action_button(ui, "Close day", true).clicked() {
                 close_day = true;
             }
+            ui.add_space(4.0);
             ui.label(
                 RichText::new(
                     "Closing the day stamps its end time, saves, and quits. Open tasks stay \
                      on the stack for tomorrow.",
                 )
-                .color(theme::current().text_dim)
+                .color(palette.text_dim)
                 .small(),
             );
         },
@@ -711,26 +742,34 @@ fn week(
         &mut placing,
         &mut still_open,
         |ui| {
+            let palette = theme::current();
+            ui.heading(format!("Week {}", monday.iso_week().week()));
+            ui.label(
+                RichText::new(format!(
+                    "{} to {}",
+                    monday.format("%A, %-d %B %Y"),
+                    days.last()
+                        .map_or_else(String::new, |day| day.format("%A, %-d %B %Y").to_string())
+                ))
+                .color(palette.text_dim),
+            );
+            ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui.button("◀ previous").clicked() {
+                if widgets::action_button(ui, "previous week", false).clicked() {
                     anchor_change = monday.checked_sub_days(Days::new(7));
                 }
-                if ui.button("today").clicked() {
+                if widgets::action_button(ui, "this week", false).clicked() {
                     anchor_change = Some(now.date_naive());
                 }
-                if ui.button("next ▶").clicked() {
+                if widgets::action_button(ui, "next week", false).clicked() {
                     anchor_change = monday.checked_add_days(Days::new(7));
                 }
-                ui.label(
-                    RichText::new(format!(
-                        "week of {monday} (calendar week {})",
-                        monday.iso_week().week()
-                    ))
-                    .color(theme::current().text_dim),
-                );
+                ui.add_space(12.0);
+                export_button(ui, tracker, &week_days, &mut copied, &mut payload);
             });
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("jump to date").color(theme::current().text_dim));
+                ui.label(RichText::new("jump to date").color(palette.text_dim));
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut typed)
                         .hint_text("YYYY-MM-DD")
@@ -750,49 +789,78 @@ fn week(
                     );
                 }
             });
-            export_button(ui, tracker, &week_days, &mut copied, &mut payload);
+            ui.add_space(10.0);
             ui.separator();
+            ui.add_space(6.0);
 
             if task_rows.is_empty() {
-                ui.label("Nothing was tracked in this week.");
+                ui.label(
+                    RichText::new("Nothing was tracked in this week.").color(palette.text_dim),
+                );
                 return;
             }
 
+            let today = now.date_naive();
             egui::Grid::new("week_grid")
                 .num_columns(9)
                 .striped(true)
                 .min_col_width(64.0)
+                .spacing([16.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(RichText::new("task").strong());
+                    ui.label(RichText::new("task").color(palette.text_dim).small());
                     for day in &days {
-                        ui.label(RichText::new(day.format("%a %d").to_string()).strong());
+                        // Today is the column the eye looks for first.
+                        let header = RichText::new(day.format("%a %-d").to_string()).small();
+                        let header = if *day == today {
+                            header.strong().color(palette.text)
+                        } else {
+                            header.color(palette.text_dim)
+                        };
+                        right_aligned(ui, header);
                     }
-                    ui.label(RichText::new("total").strong());
+                    right_aligned(ui, RichText::new("total").color(palette.text_dim).small());
                     ui.end_row();
 
                     for (name, per_day, total) in &task_rows {
-                        ui.label(RichText::new(name).color(theme::current().text));
+                        ui.label(RichText::new(name).color(palette.text));
                         for duration in per_day {
-                            ui.label(if duration.is_zero() {
-                                RichText::new("·").color(theme::current().text_dim)
-                            } else {
-                                RichText::new(format::coarse(*duration))
-                                    .color(theme::current().text)
-                            });
+                            right_aligned(
+                                ui,
+                                if duration.is_zero() {
+                                    RichText::new("·").color(palette.text_dim)
+                                } else {
+                                    RichText::new(format::coarse(*duration)).color(palette.text)
+                                },
+                            );
                         }
-                        ui.label(RichText::new(format::coarse(*total)).strong());
+                        right_aligned(
+                            ui,
+                            RichText::new(format::coarse(*total))
+                                .strong()
+                                .color(palette.text),
+                        );
                         ui.end_row();
                     }
 
-                    ui.label(RichText::new("total").strong());
+                    ui.label(RichText::new("total").strong().color(palette.text));
                     let mut week_total = Duration::ZERO;
                     for (index, _) in days.iter().enumerate() {
                         let column: Duration =
                             task_rows.iter().map(|(_, per_day, _)| per_day[index]).sum();
                         week_total += column;
-                        ui.label(RichText::new(format::coarse(column)).strong());
+                        right_aligned(
+                            ui,
+                            RichText::new(format::coarse(column))
+                                .strong()
+                                .color(palette.text),
+                        );
                     }
-                    ui.label(RichText::new(format::coarse(week_total)).strong());
+                    right_aligned(
+                        ui,
+                        RichText::new(format::coarse(week_total))
+                            .strong()
+                            .color(palette.text),
+                    );
                     ui.end_row();
                 });
         },

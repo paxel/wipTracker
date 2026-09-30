@@ -280,6 +280,42 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
     response
 }
 
+/// A button in a report window, painted rather than themed.
+///
+/// The themed `Button` takes a fill two shades off the window background and no border,
+/// so next to a striped table it reads as one more stripe. This one has a border and its
+/// own colours in every state; `primary` marks the one action the window is for.
+pub fn action_button(ui: &mut Ui, label: &str, primary: bool) -> Response {
+    let palette = theme::current();
+    let font = egui::FontId::proportional(14.0);
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, palette.text));
+    let pad = egui::vec2(14.0, 6.0);
+    let (rect, response) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    let (fill, border) = if response.is_pointer_button_down_on() {
+        (palette.hold_fill, palette.text_dim)
+    } else if response.hovered() {
+        (palette.button_active, palette.text_dim)
+    } else if primary {
+        (palette.button_active, palette.border)
+    } else {
+        (palette.button_idle, palette.border)
+    };
+    ui.painter().rect(
+        rect,
+        6.0,
+        fill,
+        Stroke::new(1.0, border),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().galley(rect.min + pad, galley, palette.text);
+    response
+}
+
 /// Fills `rect` from the left to show how far a hold has come.
 pub fn sweep(ui: &Ui, rect: egui::Rect, progress: f32, color: Color32) {
     if progress <= 0.0 {

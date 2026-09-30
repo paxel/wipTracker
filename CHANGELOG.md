@@ -18,6 +18,10 @@ All notable changes to WipTracker are documented in this file.
   with the day's worked time. A day whose numbers look wrong can now be read up
   instead of guessed at.
 
+- **The end-day and the week window are easier to read.** The buttons have a border
+  and stand apart from the table, the day's worked time is the headline, durations line
+  up on the digits under a header row, and the week names its dates and marks today's
+  column.
 
 ### Fixed
 

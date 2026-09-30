@@ -69,6 +69,30 @@ fn every_report_window_can_be_opened() {
     );
 }
 
+/// Draws the end-day and the week window into PNGs under `target/render`, so a change to
+/// their layout can be looked at rather than imagined. The harness is sized to hold a
+/// window, since the report windows are drawn inline in the test.
+#[test]
+fn the_end_day_and_week_windows_render() {
+    for (name, size) in [("end_day", [460.0, 360.0]), ("week", [720.0, 400.0])] {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(size[0], size[1]))
+            .wgpu()
+            .build_eframe(|cc| WipTracker::with_tracker(cc, populated()));
+        {
+            let windows = harness.state_mut().windows_mut();
+            windows.end_day = name == "end_day";
+            windows.week = name == "week";
+        }
+        harness.run();
+        let image = harness.render().expect("wgpu render");
+        std::fs::create_dir_all("target/render").expect("create render dir");
+        image
+            .save(format!("target/render/{name}.png"))
+            .expect("save png");
+    }
+}
+
 #[test]
 fn the_windows_survive_an_empty_tracker() {
     let mut harness = harness(Tracker::new(at(10, 9)));
