@@ -910,6 +910,11 @@ impl eframe::App for WipTracker {
             }
             self.dirty = true;
         }
+        if self.tracker.take_due_pause_reminder(now) {
+            self.windows.pause_reminder = true;
+            self.journal("pause reminder: asked");
+            self.dirty = true;
+        }
         // Asked for here rather than in `ui`: it is what keeps `logic` running while the
         // window is hidden. The periodic save runs here too, so the stored `last_seen`
         // stays fresh during a long spell out of sight.
@@ -1080,6 +1085,21 @@ impl eframe::App for WipTracker {
                     self.dirty = true;
                 }
                 windows::LauncherChoice::None => {}
+            }
+        }
+
+        if self.windows.pause_reminder {
+            let at = self.tracker.pause_reminder();
+            match windows::pause_reminder(&ctx, &mut self.windows, at) {
+                windows::ReminderChoice::PauseNow => {
+                    self.journal("pause reminder: pause now");
+                    self.switch_to_pause(now);
+                }
+                windows::ReminderChoice::NotNow => {
+                    self.journal("pause reminder: not now");
+                    self.tracker.snooze_pause_reminder(now);
+                }
+                windows::ReminderChoice::None => {}
             }
         }
 

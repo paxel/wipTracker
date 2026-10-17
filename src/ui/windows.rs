@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use chrono::{DateTime, Datelike as _, Days, Local, NaiveDate};
+use chrono::{DateTime, Datelike as _, Days, Local, NaiveDate, NaiveTime};
 use egui::{Context, RichText, ViewportBuilder, ViewportId};
 
 use crate::domain::export;
@@ -26,6 +26,8 @@ pub struct OpenWindows {
     pub stack: bool,
     /// The one-time offer to add WipTracker to the application menu.
     pub launcher_offer: bool,
+    /// The pause reminder asking for a pause.
+    pub pause_reminder: bool,
     pub timer: bool,
     pub groom: bool,
     pub end_day: bool,
@@ -39,6 +41,10 @@ pub struct OpenWindows {
     /// Which row of the timer window has its duration picker open. `None` is the default
     /// timer's row.
     timer_editing: Option<TimerTarget>,
+    /// What the user typed into the pause reminder's time field.
+    reminder_input: String,
+    /// Whether the reminder's time field has been given the focus since it opened.
+    reminder_focused: bool,
     /// Whether each window is showing its "copied to clipboard" confirmation.
     end_day_copied: bool,
     week_copied: bool,
@@ -114,6 +120,71 @@ pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
 
     open.placing = placing;
     open.launcher_offer = still_open && choice == LauncherChoice::None;
+    choice
+}
+
+/// What the user answered the pause reminder.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ReminderChoice {
+    #[default]
+    None,
+    /// Start the pause now.
+    PauseNow,
+    /// Ask again in a quarter of an hour.
+    NotNow,
+}
+
+/// The pause reminder: a small window asking whether it is time for a pause.
+///
+/// Closing the window is "not now" as well: the question comes back, and only the pause
+/// itself ends it.
+pub fn pause_reminder(
+    ctx: &Context,
+    open: &mut OpenWindows,
+    at: Option<NaiveTime>,
+) -> ReminderChoice {
+    let mut placing = std::mem::take(&mut open.placing);
+    let mut choice = ReminderChoice::None;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "pause_reminder",
+        "WipTracker — pause",
+        [360.0, 200.0],
+        &mut placing,
+        &mut still_open,
+        |ui| {
+            ui.heading("Time for a pause?");
+            ui.add_space(4.0);
+            let when = at.map_or_else(|| "now".to_owned(), format::clock_time);
+            ui.label(format!(
+                "You asked to be reminded at {when}. Starting the pause stops the clock \
+                 on the focused task from this moment."
+            ));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Not now asks again in a quarter of an hour, until you pause.")
+                    .color(theme::current().text_dim)
+                    .small(),
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if widgets::action_button(ui, "Pause now", true).clicked() {
+                    choice = ReminderChoice::PauseNow;
+                }
+                if widgets::action_button(ui, "Not now", false).clicked() {
+                    choice = ReminderChoice::NotNow;
+                }
+            });
+        },
+    );
+
+    open.placing = placing;
+    if choice == ReminderChoice::None && !still_open {
+        choice = ReminderChoice::NotNow;
+    }
+    open.pause_reminder = choice == ReminderChoice::None;
     choice
 }
 
@@ -354,39 +425,60 @@ pub enum TimerTarget {
     Task(TaskId),
     /// Auto-pause once the user has been idle this long. Off by default.
     IdlePause,
+    /// The clock time the pause reminder asks at.
+    PauseReminder,
 }
 
 /// The timer window: the whole day, the default new tasks inherit, and one row per task.
 fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
     let mut placing = std::mem::take(&mut open.placing);
-    let rows: Vec<(TimerTarget, String, Duration)> = [
+    let duration_label = |timer: Duration| {
+        if timer.is_zero() {
+            "off".to_owned()
+        } else {
+            format::coarse(timer)
+        }
+    };
+    let rows: Vec<(TimerTarget, String, String)> = [
         (
             TimerTarget::Day,
             "the whole day".to_owned(),
-            tracker.day_timer(),
+            duration_label(tracker.day_timer()),
         ),
         (
             TimerTarget::IdlePause,
             "auto-pause when idle".to_owned(),
-            tracker.idle_pause(),
+            duration_label(tracker.idle_pause()),
+        ),
+        (
+            TimerTarget::PauseReminder,
+            "pause reminder at".to_owned(),
+            tracker
+                .pause_reminder()
+                .map_or_else(|| "off".to_owned(), format::clock_time),
         ),
         (
             TimerTarget::Default,
             "default for new tasks".to_owned(),
-            tracker.default_timer(),
+            duration_label(tracker.default_timer()),
         ),
     ]
     .into_iter()
-    .chain(
-        tracker
-            .open_tasks_top_first()
-            .iter()
-            .map(|task| (TimerTarget::Task(task.id), task.name.clone(), task.timer)),
-    )
+    .chain(tracker.open_tasks_top_first().iter().map(|task| {
+        (
+            TimerTarget::Task(task.id),
+            task.name.clone(),
+            duration_label(task.timer),
+        )
+    }))
     .collect();
 
     let mut editing = open.timer_editing;
     let mut chosen: Option<(TimerTarget, Duration)> = None;
+    // `Some(None)` switches the reminder off.
+    let mut reminder: Option<Option<NaiveTime>> = None;
+    let mut typed = open.reminder_input.clone();
+    let mut typed_focused = open.reminder_focused;
     let mut still_open = true;
 
     window(
@@ -405,25 +497,26 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                      sounds its own noise, and turns the bar clock red. Auto-pause \
                      starts the pause by itself once keyboard and mouse have been quiet \
                      that long, and takes the quiet minutes off the task; off means \
-                     WipTracker never watches your input. Zero means no alarm.",
+                     WipTracker never watches your input. The pause reminder asks \
+                     for a pause at that clock time, once a day. Zero means no alarm.",
                 )
                 .color(theme::current().text_dim)
                 .small(),
             );
             ui.add_space(6.0);
 
-            for (id, name, timer) in &rows {
+            for (id, name, label) in &rows {
                 ui.horizontal(|ui| {
-                    let label = if timer.is_zero() {
-                        "off".to_owned()
+                    let hover = if *id == TimerTarget::PauseReminder {
+                        "Left click: choose the clock time to be asked for a pause at"
                     } else {
-                        format::coarse(*timer)
+                        "Left click: choose how long this may run per day"
                     };
                     if ui
                         .button(
                             RichText::new(format!("{name}   {label}")).color(theme::current().text),
                         )
-                        .on_hover_text("Left click: choose how long this may run per day")
+                        .on_hover_text(hover)
                         .clicked()
                     {
                         editing = if editing == Some(*id) {
@@ -431,9 +524,48 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                         } else {
                             Some(*id)
                         };
+                        if editing == Some(TimerTarget::PauseReminder) {
+                            typed = tracker
+                                .pause_reminder()
+                                .map(format::clock_time)
+                                .unwrap_or_default();
+                            typed_focused = false;
+                        }
                     }
                 });
-                if editing == Some(*id) {
+                if editing == Some(TimerTarget::PauseReminder) && *id == TimerTarget::PauseReminder
+                {
+                    ui.horizontal(|ui| {
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut typed)
+                                .hint_text("HH:MM")
+                                .desired_width(70.0),
+                        );
+                        if !typed_focused {
+                            response.request_focus();
+                            typed_focused = true;
+                        }
+                        let parsed = format::parse_clock(&typed);
+                        let submitted =
+                            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if (submitted || widgets::action_button(ui, "set", true).clicked())
+                            && parsed.is_some()
+                        {
+                            reminder = Some(parsed);
+                        }
+                        if widgets::action_button(ui, "off", false).clicked() {
+                            reminder = Some(None);
+                        }
+                        if !typed.trim().is_empty() && parsed.is_none() {
+                            ui.label(
+                                RichText::new("not a time")
+                                    .color(egui::Color32::from_rgb(0xE8, 0x7A, 0x7A))
+                                    .small(),
+                            );
+                        }
+                    });
+                    ui.add_space(4.0);
+                } else if editing == Some(*id) {
                     // Idle spans are minutes, timers are hours; each row offers what
                     // makes sense for it.
                     let choices: &[(&str, u64)] = if *id == TimerTarget::IdlePause {
@@ -472,10 +604,19 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
     open.placing = placing;
     open.timer = still_open;
     open.timer_editing = editing;
+    open.reminder_input = typed;
+    open.reminder_focused = typed_focused;
+    if let Some(at) = reminder {
+        tracker.set_pause_reminder(at);
+        open.timer_editing = None;
+        return true;
+    }
     if let Some((target, duration)) = chosen {
         match target {
             TimerTarget::Day => tracker.set_day_timer(duration),
             TimerTarget::IdlePause => tracker.set_idle_pause(duration),
+            // Picked through its own field, never from the duration choices.
+            TimerTarget::PauseReminder => {}
             TimerTarget::Default => tracker.set_default_timer(duration),
             TimerTarget::Task(id) => {
                 let _ = tracker.set_timer(id, duration);

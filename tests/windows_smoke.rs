@@ -711,3 +711,85 @@ fn the_menu_toggles_the_hints() {
     harness.run();
     assert!(harness.state().shows_hints());
 }
+
+/// The timers window takes the pause reminder's clock time from a text field, and
+/// switches it off again.
+#[test]
+fn the_timer_window_sets_the_pause_reminder() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().timer = true;
+    harness.run();
+
+    harness
+        .get_by_label_contains("pause reminder at")
+        .click_accesskit();
+    harness.run();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text("12:30".to_owned()));
+    harness.run();
+    harness.get_by_label("set").click_accesskit();
+    harness.run();
+
+    assert_eq!(
+        harness.state().tracker().pause_reminder(),
+        chrono::NaiveTime::from_hms_opt(12, 30, 0)
+    );
+
+    harness
+        .get_by_label_contains("pause reminder at")
+        .click_accesskit();
+    harness.run();
+    harness.get_by_label("off").click_accesskit();
+    harness.run();
+    assert_eq!(harness.state().tracker().pause_reminder(), None);
+}
+
+/// A tracker whose pause reminder came due a minute ago, with a task focused.
+fn due_for_a_pause() -> Tracker {
+    let now = Local::now();
+    let mut tracker = Tracker::new(now - chrono::TimeDelta::hours(2));
+    let id = tracker.push_new_task(now - chrono::TimeDelta::hours(2));
+    tracker.rename(id, "write the report").expect("rename");
+    tracker.set_pause_reminder(Some((now - chrono::TimeDelta::minutes(1)).time()));
+    tracker
+}
+
+/// Once the reminder's time has come, the question pops up by itself, and accepting it
+/// starts the pause from that moment.
+#[test]
+fn the_pause_reminder_pops_up_and_starts_the_pause() {
+    use egui_kittest::kittest::Queryable as _;
+    use wiptracker::domain::task::PAUSE_NAME;
+
+    let mut harness = harness(due_for_a_pause());
+    harness.run();
+    assert!(
+        harness.state().windows().pause_reminder,
+        "the question is up"
+    );
+
+    harness.get_by_label("Pause now").click_accesskit();
+    harness.run();
+
+    assert_eq!(harness.state().tracker().focused_name(), PAUSE_NAME);
+    assert!(!harness.state().windows().pause_reminder);
+}
+
+/// "Not now" closes the question without pausing; it comes back later on its own.
+#[test]
+fn not_now_leaves_the_task_running() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(due_for_a_pause());
+    harness.run();
+
+    harness.get_by_label("Not now").click_accesskit();
+    harness.run();
+
+    assert_eq!(harness.state().tracker().focused_name(), "write the report");
+    assert!(!harness.state().windows().pause_reminder);
+}

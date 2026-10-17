@@ -73,3 +73,10 @@ _Avoid_: Daily timer (that is the per-task one), day limit
 What sounds when a timer is reached. A task alarm and the day alarm are distinct, so the
 two cannot be mistaken for each other.
 _Avoid_: Timer (for the sound), notification, reminder
+
+**Pause reminder**:
+The question "time for a pause?" asked once a day at a clock time the user set. Accepting
+it starts the pause from that moment; "not now" asks again a quarter of an hour later
+until the pause is running. It is silent and belongs to its clock time: half an hour late
+is still asked, later is missed for the day.
+_Avoid_: Pause alarm, lunch reminder, nag (that is the repeating day alarm)
