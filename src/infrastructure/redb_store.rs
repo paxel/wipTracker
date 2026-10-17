@@ -25,6 +25,7 @@ const KEY_LAUNCHER_DISMISSED: &str = "launcher_offer_dismissed";
 const KEY_IDLE_PAUSE: &str = "idle_pause";
 const KEY_PAUSE_REMINDER: &str = "pause_reminder";
 const KEY_LAST_SEEN: &str = "last_seen";
+const KEY_FOCUSED_SINCE: &str = "focused_since";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
 const KEY_TASKBAR: &str = "taskbar";
@@ -126,6 +127,11 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .flatten();
+        let focused_since = parse(read_meta(KEY_FOCUSED_SINCE)?)?
+            .map(serde_json::from_value::<Option<chrono::DateTime<chrono::Local>>>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .flatten();
         let show_duration = parse(read_meta(KEY_SHOW_DURATION)?)?
             .and_then(|value| value.as_bool())
             .unwrap_or(true);
@@ -177,6 +183,7 @@ impl Store for RedbStore {
             default_timer,
             day_timer,
             last_seen,
+            focused_since,
             show_duration,
             decorated,
             taskbar,
@@ -229,6 +236,10 @@ impl Store for RedbStore {
             )?;
             put(KEY_DAY_TIMER, &serde_json::json!(snapshot.day_timer))?;
             put(KEY_LAST_SEEN, &serde_json::json!(snapshot.last_seen))?;
+            put(
+                KEY_FOCUSED_SINCE,
+                &serde_json::json!(snapshot.focused_since),
+            )?;
             put(
                 KEY_LAUNCHER_DISMISSED,
                 &serde_json::json!(snapshot.launcher_offer_dismissed),
@@ -324,6 +335,7 @@ mod tests {
             default_timer: Duration::from_secs(3600),
             day_timer: Duration::from_secs(8 * 3600),
             last_seen: Some(created),
+            focused_since: Some(created - chrono::TimeDelta::hours(1)),
             launcher_offer_dismissed: true,
             idle_pause: Duration::from_secs(600),
             pause_reminder: chrono::NaiveTime::from_hms_opt(12, 30, 0),

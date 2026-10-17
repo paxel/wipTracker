@@ -24,6 +24,10 @@ pub enum TrackerError {
     TaskIsFinished(TaskId),
     #[error("task {0} is not finished")]
     TaskIsNotFinished(TaskId),
+    #[error("the pause has no span to end earlier")]
+    PauseHasNoSpan,
+    #[error("the cut must lie inside the focus span")]
+    CutOutsideSpan,
 }
 
 pub struct Tracker {
@@ -48,6 +52,8 @@ pub struct Tracker {
     reminder_snoozed_until: Option<DateTime<Local>>,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
+    /// When the focused task became the focused task: the start of its focus span.
+    focused_since: DateTime<Local>,
 }
 
 impl Tracker {
@@ -67,6 +73,7 @@ impl Tracker {
             pause_reminder: None,
             reminder_snoozed_until: None,
             active_since: now,
+            focused_since: now,
         }
     }
 
@@ -105,6 +112,7 @@ impl Tracker {
             pause_reminder: snapshot.pause_reminder,
             reminder_snoozed_until: None,
             active_since: resume_from,
+            focused_since: snapshot.focused_since.unwrap_or(resume_from).min(now),
         };
         tracker
             .tasks
@@ -138,6 +146,7 @@ impl Tracker {
             idle_pause: self.idle_pause,
             pause_reminder: self.pause_reminder,
             last_seen: Some(self.active_since),
+            focused_since: Some(self.focused_since),
             show_duration,
             decorated,
             window_pos,
@@ -266,6 +275,7 @@ impl Tracker {
         self.tasks
             .insert(id, Task::new(id, name, now).with_timer(self.default_timer));
         self.stack.push(id);
+        self.focused_since = now;
         id
     }
 
@@ -277,6 +287,7 @@ impl Tracker {
         let id = self.focused_id();
         if id == PAUSE_ID {
             self.end_break();
+            self.refocus(id, now);
             return None;
         }
         self.stack.pop();
@@ -284,6 +295,7 @@ impl Tracker {
             task.finished_at = Some(now);
         }
         self.ensure_not_empty();
+        self.refocus(id, now);
         Some(id)
     }
 
@@ -292,6 +304,7 @@ impl Tracker {
     /// The pause task is silently skipped; it cannot be finished.
     pub fn finish_all(&mut self, ids: &[TaskId], now: DateTime<Local>) {
         self.accrue(now);
+        let before = self.focused_id();
         for id in ids {
             if *id == PAUSE_ID {
                 continue;
@@ -304,6 +317,7 @@ impl Tracker {
             }
         }
         self.ensure_not_empty();
+        self.refocus(before, now);
     }
 
     /// Moves an open task to the top of the stack.
@@ -313,14 +327,17 @@ impl Tracker {
             return Err(TrackerError::TaskIsFinished(id));
         }
         self.accrue(now);
+        let before = self.focused_id();
         self.stack.retain(|stacked| *stacked != id);
         self.stack.push(id);
+        self.refocus(before, now);
         Ok(())
     }
 
     /// Puts a finished task back on top of the stack, keeping its collected time.
     pub fn revive(&mut self, id: TaskId, now: DateTime<Local>) -> Result<(), TrackerError> {
         self.accrue(now);
+        let before = self.focused_id();
         let task = self
             .tasks
             .get_mut(&id)
@@ -331,6 +348,7 @@ impl Tracker {
         task.finished_at = None;
         self.stack.retain(|stacked| *stacked != id);
         self.stack.push(id);
+        self.refocus(before, now);
         Ok(())
     }
 
@@ -584,6 +602,100 @@ impl Tracker {
         let record = self.history.entry(now.date_naive()).or_default();
         record.ended_at = Some(now);
         record.closed = true;
+    }
+
+    /// Since when the focused task has been the focused task.
+    pub fn focused_since(&self) -> DateTime<Local> {
+        self.focused_since
+    }
+
+    /// Whether the focused task's span began on an earlier day than `now`: the task ran
+    /// through midnight, which is what ending earlier is usually for.
+    pub fn span_crossed_midnight(&self, now: DateTime<Local>) -> bool {
+        self.focused_id() != PAUSE_ID && self.focused_since.date_naive() < now.date_naive()
+    }
+
+    /// What ending the focus span at `cut` would take off the focused task, day by day,
+    /// in calendar order. Empty when there is nothing to take.
+    ///
+    /// The span is the only thing credited to the task between `cut` and `now`, so what
+    /// comes off each day is the part of the span on that day — capped by what the day
+    /// actually holds, since a restart may have left a gap uncredited.
+    pub fn end_earlier_preview(
+        &self,
+        cut: DateTime<Local>,
+        now: DateTime<Local>,
+    ) -> Result<Vec<(NaiveDate, Duration)>, TrackerError> {
+        let focused = self.focused_id();
+        if focused == PAUSE_ID {
+            return Err(TrackerError::PauseHasNoSpan);
+        }
+        if cut < self.focused_since || cut > now {
+            return Err(TrackerError::CutOutsideSpan);
+        }
+        let mut removal = Vec::new();
+        for (day, start, end) in split_by_day(cut, now) {
+            let credited = self.duration_on(focused, day)
+                + if day == now.date_naive() {
+                    (now - self.active_since).to_std().unwrap_or_default()
+                } else {
+                    Duration::ZERO
+                };
+            let span = (end - start).to_std().unwrap_or_default();
+            let taken = span.min(credited);
+            if !taken.is_zero() {
+                removal.push((day, taken));
+            }
+        }
+        Ok(removal)
+    }
+
+    /// Ends the focused task's span at `cut` instead of now: everything it was credited
+    /// since then is taken back, as if the day had ended there.
+    ///
+    /// The day of the cut ends at the cut and is closed when it is not today; days in
+    /// between that held nothing else vanish. The task keeps running from `now`, as a
+    /// fresh span: the user is back at the machine.
+    pub fn end_earlier(
+        &mut self,
+        cut: DateTime<Local>,
+        now: DateTime<Local>,
+    ) -> Result<Duration, TrackerError> {
+        let removal = self.end_earlier_preview(cut, now)?;
+        self.accrue(now);
+        let focused = self.focused_id();
+        let today = now.date_naive();
+        let mut removed = Duration::ZERO;
+        for (day, taken) in removal {
+            let Some(record) = self.history.get_mut(&day) else {
+                continue;
+            };
+            if let Some(credited) = record.per_task.get_mut(&focused) {
+                *credited = credited.saturating_sub(taken);
+                if credited.is_zero() {
+                    record.per_task.remove(&focused);
+                }
+            }
+            removed += taken;
+            if day == cut.date_naive() && day != today {
+                record.ended_at = Some(cut);
+                record.closed = true;
+            } else if record.per_task.is_empty() {
+                self.history.remove(&day);
+            }
+        }
+        if let Some(task) = self.tasks.get_mut(&focused) {
+            task.total = task.total.saturating_sub(removed);
+        }
+        self.focused_since = now;
+        Ok(removed)
+    }
+
+    /// Starts a new focus span if the focused task is not `before` any more.
+    fn refocus(&mut self, before: TaskId, now: DateTime<Local>) {
+        if self.focused_id() != before {
+            self.focused_since = now;
+        }
     }
 
     /// Tasks that collected time on `day`, longest first.
@@ -936,6 +1048,7 @@ mod tests {
             launcher_offer_dismissed: false,
             idle_pause: Duration::ZERO,
             pause_reminder: None,
+            focused_since: None,
             show_duration: true,
             decorated: None,
             taskbar: None,
@@ -1347,6 +1460,162 @@ mod tests {
         );
     }
 
+    /// The span starts when the task becomes the focused task and survives a restart.
+    #[test]
+    fn the_focus_span_starts_with_every_change_of_focus() {
+        let mut tracker = Tracker::new(at(1, 9));
+        assert_eq!(tracker.focused_since(), at(1, 9));
+        let first = tracker.push_new_task(at(1, 10));
+        assert_eq!(tracker.focused_since(), at(1, 10));
+        tracker
+            .select(first, at(1, 11))
+            .expect("select the same task");
+        assert_eq!(tracker.focused_since(), at(1, 10), "same task, same span");
+        tracker.select(PAUSE_ID, at(1, 12)).expect("select pause");
+        assert_eq!(tracker.focused_since(), at(1, 12));
+        tracker.finish_focused(at(1, 13));
+        assert_eq!(
+            tracker.focused_since(),
+            at(1, 13),
+            "ending the pause refocuses"
+        );
+
+        let snapshot = tracker.snapshot(true, None, None);
+        let restored = Tracker::from_snapshot(&snapshot, at(1, 14));
+        assert_eq!(restored.focused_since(), at(1, 13));
+    }
+
+    /// A machine that failed to shut down: the task ran from Monday evening to Tuesday
+    /// morning. Ending Monday at 17:30 takes the night off both days, closes Monday at
+    /// the cut and lets the task run on from now.
+    #[test]
+    fn ending_earlier_takes_the_night_off_both_days() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(2, 9));
+        assert!(tracker.span_crossed_midnight(at(2, 9)));
+
+        let cut = at(1, 17) + TimeDelta::minutes(30);
+        let preview = tracker
+            .end_earlier_preview(cut, at(2, 9))
+            .expect("inside the span");
+        assert_eq!(
+            preview,
+            vec![
+                (at(1, 0).date_naive(), hours(6) + Duration::from_secs(1800)),
+                (at(2, 0).date_naive(), hours(9)),
+            ]
+        );
+
+        let removed = tracker.end_earlier(cut, at(2, 9)).expect("inside the span");
+        assert_eq!(removed, hours(15) + Duration::from_secs(1800));
+        assert_eq!(
+            tracker.duration_on(task, at(1, 0).date_naive()),
+            hours(8) + Duration::from_secs(1800)
+        );
+        let monday = tracker.day(at(1, 0).date_naive()).expect("monday stays");
+        assert_eq!(monday.ended_at, Some(cut));
+        assert!(monday.closed);
+        assert!(
+            tracker.day(at(2, 0).date_naive()).is_none(),
+            "tuesday held nothing but the night"
+        );
+        assert_eq!(
+            tracker.task(task).map(|t| t.total),
+            Some(hours(8) + Duration::from_secs(1800))
+        );
+        assert_eq!(tracker.focused_id(), task, "the task keeps running");
+        assert_eq!(tracker.focused_since(), at(2, 9), "as a fresh span");
+        assert!(!tracker.span_crossed_midnight(at(2, 9)));
+
+        tracker.accrue(at(2, 10));
+        assert_eq!(tracker.duration_on(task, at(2, 0).date_naive()), hours(1));
+    }
+
+    /// The start of a vacation: the task ran for days. Every day in between goes.
+    #[test]
+    fn ending_earlier_can_span_a_vacation() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(5, 8));
+
+        let removed = tracker
+            .end_earlier(at(1, 16), at(5, 8))
+            .expect("inside the span");
+        assert_eq!(removed, hours(8 + 24 * 3 + 8));
+        assert_eq!(tracker.duration_on(task, at(1, 0).date_naive()), hours(7));
+        for day in 2..=5 {
+            assert!(tracker.day(at(day, 0).date_naive()).is_none(), "day {day}");
+        }
+        assert_eq!(tracker.task(task).map(|t| t.total), Some(hours(7)));
+    }
+
+    /// A day in between with another task's time keeps that time.
+    #[test]
+    fn ending_earlier_leaves_other_tasks_alone() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let other = tracker.push_new_task(at(1, 9));
+        let task = tracker.push_new_task(at(1, 12));
+        tracker.accrue(at(2, 9));
+
+        tracker
+            .end_earlier(at(1, 17), at(2, 9))
+            .expect("inside the span");
+        assert_eq!(tracker.duration_on(other, at(1, 0).date_naive()), hours(3));
+        assert_eq!(tracker.duration_on(task, at(1, 0).date_naive()), hours(5));
+        assert_eq!(tracker.worked_on(at(1, 0).date_naive()), hours(8));
+    }
+
+    /// The same mechanics fix a forgotten pause on the same day: today is not closed.
+    #[test]
+    fn ending_earlier_on_the_same_day_leaves_the_day_open() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 14));
+        assert!(!tracker.span_crossed_midnight(at(1, 14)));
+
+        let removed = tracker
+            .end_earlier(at(1, 12), at(1, 14))
+            .expect("inside the span");
+        assert_eq!(removed, hours(2));
+        assert_eq!(tracker.duration_on(task, at(1, 0).date_naive()), hours(3));
+        let today = tracker.day(at(1, 0).date_naive()).expect("today stays");
+        assert!(!today.closed);
+        assert_eq!(today.ended_at, Some(at(1, 14)));
+    }
+
+    /// A restart that could not recover its gap left part of the span uncredited; the
+    /// cut takes only what the days really hold.
+    #[test]
+    fn ending_earlier_takes_no_more_than_was_credited() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(2, 3));
+        let snapshot = tracker.snapshot(true, None, None);
+        let mut restored = Tracker::from_snapshot(&snapshot, at(2, 9));
+        assert_eq!(restored.focused_since(), at(1, 9), "the span survived");
+
+        let removed = restored
+            .end_earlier(at(1, 17), at(2, 9))
+            .expect("inside the span");
+        assert_eq!(removed, hours(7 + 3));
+        assert_eq!(restored.duration_on(task, at(1, 0).date_naive()), hours(8));
+        assert!(restored.day(at(2, 0).date_naive()).is_none());
+    }
+
+    /// The preview counts the time not yet accrued, so the number shown is the number
+    /// taken.
+    #[test]
+    fn the_preview_matches_the_cut() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        let preview = tracker
+            .end_earlier_preview(at(1, 11), at(1, 14))
+            .expect("inside the span");
+        assert_eq!(preview, vec![(at(1, 0).date_naive(), hours(3))]);
+        assert_eq!(tracker.end_earlier(at(1, 11), at(1, 14)), Ok(hours(3)));
+    }
+
     #[test]
     fn the_refusals_name_their_reasons() {
         let mut tracker = Tracker::new(at(1, 9));
@@ -1365,10 +1634,23 @@ mod tests {
             Err(TrackerError::TaskIsNotFinished(task))
         );
 
+        assert_eq!(
+            tracker.end_earlier(at(1, 8), at(1, 10)),
+            Err(TrackerError::CutOutsideSpan)
+        );
+        assert_eq!(
+            tracker.end_earlier(at(1, 11), at(1, 10)),
+            Err(TrackerError::CutOutsideSpan)
+        );
+
         tracker.finish_focused(at(1, 10));
         assert_eq!(
             tracker.select(task, at(1, 11)),
             Err(TrackerError::TaskIsFinished(task))
+        );
+        assert_eq!(
+            tracker.end_earlier(at(1, 10), at(1, 11)),
+            Err(TrackerError::PauseHasNoSpan)
         );
 
         // Crediting zero on a day with no record changes nothing and panics nowhere.

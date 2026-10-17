@@ -28,6 +28,9 @@ pub struct Snapshot {
     /// recovered on the next start. `None` before the first save.
     #[serde(default)]
     pub last_seen: Option<chrono::DateTime<chrono::Local>>,
+    /// When the focused task became the focused task, so its span survives a restart.
+    #[serde(default)]
+    pub focused_since: Option<chrono::DateTime<chrono::Local>>,
     pub show_duration: bool,
     /// Whether the window wears its window manager's frame. `None` means the user has not
     /// chosen, so the platform default applies.
