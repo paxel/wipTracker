@@ -255,6 +255,9 @@ pub struct WipTracker {
     day_alarms_sounded: usize,
     /// Whether the offer to add WipTracker to the application menu was declined for good.
     launcher_offer_dismissed: bool,
+    /// The focus span for which ending earlier was already offered, so a span that ran
+    /// through midnight is offered once, on the first interaction, and not again.
+    end_earlier_offered_for: Option<DateTime<Local>>,
     /// Whether WipTracker starts with the session, read once at startup; `None` where
     /// the platform will not say, which disables the menu toggle.
     autostart: Option<bool>,
@@ -371,6 +374,7 @@ impl WipTracker {
             journaled_focus: None,
             alarms_sounded: Vec::new(),
             day_alarms_sounded: 0,
+            end_earlier_offered_for: None,
             launcher_offer_dismissed: false,
             autostart: None,
             painted: false,
@@ -815,10 +819,44 @@ impl WipTracker {
             }
             MenuAction::OpenGroom => self.windows.groom = true,
             MenuAction::OpenEndDay => self.windows.end_day = true,
+            MenuAction::OpenEndEarlier => self.windows.end_earlier = true,
             MenuAction::OpenWeek => self.windows.week = true,
             MenuAction::OpenRevive => self.windows.revive = true,
             MenuAction::None => {}
         }
+    }
+
+    /// Offers to end the focused task's span earlier when it ran through midnight — a
+    /// machine that did not shut down — on the first press or keystroke that reaches the
+    /// bar, once per span. The user is back at the machine; 00:01 is not that moment.
+    fn offer_end_earlier(&mut self, ctx: &egui::Context, now: DateTime<Local>) {
+        if !self.tracker.span_crossed_midnight(now) {
+            return;
+        }
+        let since = self.tracker.focused_since();
+        if self.end_earlier_offered_for == Some(since) {
+            return;
+        }
+        let interacted = ctx.input(|input| {
+            input.pointer.any_pressed()
+                || input.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                    )
+                })
+        });
+        if !interacted {
+            return;
+        }
+        self.end_earlier_offered_for = Some(since);
+        self.windows.end_earlier = true;
+        self.windows.end_earlier_offered = true;
+        self.journal(&format!(
+            "end earlier: offered, '{}' focused since {}",
+            self.tracker.focused_name(),
+            since.format("%Y-%m-%d %H:%M")
+        ));
     }
 
     fn show_rename_editor(&mut self, ui: &mut egui::Ui) -> bool {
@@ -1103,9 +1141,19 @@ impl eframe::App for WipTracker {
             }
         }
 
+        self.offer_end_earlier(&ctx, now);
+
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);
         if outcome.changed {
             self.dirty = true;
+        }
+        if let Some(ended) = &outcome.ended_earlier {
+            self.journal(&format!(
+                "end earlier: '{}' cut at {}, took {} off",
+                ended.task,
+                ended.cut.format("%Y-%m-%d %H:%M"),
+                format::clock(ended.removed)
+            ));
         }
         // Copying from the root context, not from inside the report window: an immediate
         // viewport's output never reaches the platform, so the clipboard would stay empty.

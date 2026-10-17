@@ -571,6 +571,13 @@ fn the_menu_opens_each_window() {
             },
         ),
         (
+            "end earlier",
+            |app| app.windows().end_earlier,
+            |app| {
+                app.windows_mut().end_earlier = false;
+            },
+        ),
+        (
             "week",
             |app| app.windows().week,
             |app| {
@@ -792,4 +799,94 @@ fn not_now_leaves_the_task_running() {
 
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
     assert!(!harness.state().windows().pause_reminder);
+}
+
+/// A task that has been focused since yesterday evening: the machine did not shut down.
+fn running_since_yesterday() -> (Tracker, DateTime<Local>) {
+    let yesterday = Local::now().date_naive() - chrono::TimeDelta::days(1);
+    let since = Local
+        .from_local_datetime(&yesterday.and_hms_opt(17, 0, 0).expect("valid time"))
+        .earliest()
+        .expect("valid local time");
+    let mut tracker = Tracker::new(since - chrono::TimeDelta::hours(8));
+    let id = tracker.push_new_task(since);
+    tracker.rename(id, "write the report").expect("rename");
+    (tracker, since)
+}
+
+/// The end-earlier window comes prefilled with the span's start; cutting there takes the
+/// whole night off, closes yesterday at the cut and leaves the task running.
+#[test]
+fn the_end_earlier_window_cuts_the_span() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let (tracker, since) = running_since_yesterday();
+    let mut harness = harness(tracker);
+    harness.state_mut().windows_mut().end_earlier = true;
+    harness.run();
+
+    harness.get_by_label("End there").click_accesskit();
+    harness.run();
+
+    let tracker = harness.state().tracker();
+    assert!(!harness.state().windows().end_earlier, "the window closed");
+    assert_eq!(tracker.focused_name(), "write the report");
+    assert!(tracker.focused_since() > since, "a fresh span");
+    let yesterday = tracker.day(since.date_naive()).expect("yesterday stays");
+    assert!(yesterday.closed);
+    assert_eq!(yesterday.ended_at, Some(since));
+    // The frames after the click credit the fresh span a few milliseconds of today.
+    assert!(tracker.worked_on(Local::now().date_naive()) < std::time::Duration::from_secs(60));
+    assert_eq!(
+        tracker.worked_on(since.date_naive()),
+        std::time::Duration::ZERO
+    );
+}
+
+/// A span that ran through midnight is offered for ending on the first press that
+/// reaches the bar, once; "not now" is remembered for that span.
+#[test]
+fn a_span_through_midnight_is_offered_once_on_the_first_press() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let (tracker, _) = running_since_yesterday();
+    let mut harness = harness(tracker);
+    harness.run();
+    assert!(
+        !harness.state().windows().end_earlier,
+        "nothing is offered before the user does anything"
+    );
+
+    let press = |harness: &mut Harness<'_, WipTracker>| {
+        let pos = egui::pos2(2.0, 2.0);
+        let events = &mut harness.input_mut().events;
+        events.push(egui::Event::PointerMoved(pos));
+        events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run();
+        let events = &mut harness.input_mut().events;
+        events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        events.push(egui::Event::PointerGone);
+        harness.run();
+    };
+    press(&mut harness);
+    assert!(harness.state().windows().end_earlier, "offered");
+    assert!(harness.state().windows().end_earlier_offered);
+
+    harness.get_by_label("Not now").click_accesskit();
+    harness.run();
+    assert!(!harness.state().windows().end_earlier);
+    assert_eq!(harness.state().tracker().focused_name(), "write the report");
+
+    press(&mut harness);
+    assert!(!harness.state().windows().end_earlier, "once per span");
 }

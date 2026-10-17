@@ -80,3 +80,16 @@ it starts the pause from that moment; "not now" asks again a quarter of an hour 
 until the pause is running. It is silent and belongs to its clock time: half an hour late
 is still asked, later is missed for the day.
 _Avoid_: Pause alarm, lunch reminder, nag (that is the repeating day alarm)
+
+**Focus span**:
+The unbroken stretch since the focused task became the focused task. It survives a
+restart and ends with every change of focus, or with an end-earlier cut.
+_Avoid_: Session, run, streak
+
+**End earlier**:
+Ending the focus span at a moment in the past instead of now: everything the focused task
+was credited since then is taken back, the day of the cut ends there and is closed, days
+in between that held nothing else disappear, and the task keeps running from now as a new
+span. For a machine that failed to shut down, a forgotten pause, or the start of a
+vacation.
+_Avoid_: Fix day, cut, correction, retroactive pause

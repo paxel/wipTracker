@@ -24,6 +24,7 @@ pub enum MenuAction {
     OpenTimer,
     OpenGroom,
     OpenEndDay,
+    OpenEndEarlier,
     OpenWeek,
     OpenRevive,
     ToggleDuration,
@@ -225,6 +226,13 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             MenuAction::OpenEndDay,
             true,
             "Today's report; closing the day saves and quits",
+        ),
+        item(
+            "end earlier",
+            MenuAction::OpenEndEarlier,
+            !context.paused,
+            "The task kept running after you stopped — a forgotten pause, a machine that \
+             did not shut down. Say when you really stopped and that time comes off",
         ),
         item(
             "week",

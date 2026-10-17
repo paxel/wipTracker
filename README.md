@@ -164,6 +164,22 @@ because a clock left running overnight would credit tomorrow's hours to today. O
 stay on the stack and come back when you start it again. Closing the window without
 pressing the button changes nothing.
 
+**Ask to be reminded of the pause.** _pause reminder at_, in the timers window, takes a
+clock time such as `12:30`. At that time, once a day, a small window asks whether it is
+time for a pause: _Pause now_ starts it from that moment, _Not now_ asks again a quarter
+of an hour later until the pause is running. A pause already running then is taken as the
+answer, and a time more than half an hour past when WipTracker wakes up is missed for the
+day rather than made up.
+
+**End the day earlier.** The machine did not shut down, and the task ran through the
+night — or through the first days of a vacation. Menu → _end earlier_ shows since when
+the task has been focused, asks when you really stopped, and tells what it would take off
+before you press _End there_: the day of the cut ends at that moment and is closed, days
+in between that held nothing else disappear, and the task keeps running from now.
+WipTracker offers this by itself on the first click or keystroke after a task ran through
+midnight, once; _Not now_ puts it away. The same window takes a forgotten pause off the
+same day.
+
 **Look back.** Menu → _week_ shows a grid: one row per task, one column per weekday, plus
 totals down the side and along the bottom. Use _previous_ / _next_ / _today_ to move
 between weeks, or type any date as `YYYY-MM-DD` into _jump to date_ and press Enter to see

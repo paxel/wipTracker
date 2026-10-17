@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use chrono::{DateTime, Datelike as _, Days, Local, NaiveDate, NaiveTime};
+use chrono::{DateTime, Datelike as _, Days, Local, NaiveDate, NaiveTime, TimeZone as _};
 use egui::{Context, RichText, ViewportBuilder, ViewportId};
 
 use crate::domain::export;
@@ -31,6 +31,11 @@ pub struct OpenWindows {
     pub timer: bool,
     pub groom: bool,
     pub end_day: bool,
+    /// Ending the focused task's span earlier than now.
+    pub end_earlier: bool,
+    /// Whether the end-earlier window was opened by the app's own offer, which gives
+    /// it a "not now" button, rather than from the menu.
+    pub end_earlier_offered: bool,
     pub week: bool,
     pub revive: bool,
     groom_selection: BTreeSet<TaskId>,
@@ -48,6 +53,11 @@ pub struct OpenWindows {
     /// Whether each window is showing its "copied to clipboard" confirmation.
     end_day_copied: bool,
     week_copied: bool,
+    /// The end-earlier fields: the day and the clock time of the cut, as typed, and the
+    /// span start they were prefilled from, so a new span prefills them again.
+    cut_date: String,
+    cut_time: String,
+    cut_prefilled: Option<DateTime<Local>>,
     /// Where the bar is and where each window went; see [`Placing`].
     pub placing: Placing,
 }
@@ -197,6 +207,16 @@ pub struct WindowOutcome {
     pub day_closed: bool,
     /// JSON the user asked to have on the clipboard.
     pub copy: Option<String>,
+    /// The user ended the focused task's span earlier.
+    pub ended_earlier: Option<EndedEarlier>,
+}
+
+/// What an end-earlier cut did, for the journal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndedEarlier {
+    pub task: String,
+    pub cut: DateTime<Local>,
+    pub removed: Duration,
 }
 
 /// Draws every open window.
@@ -221,6 +241,10 @@ pub fn show_all(
         outcome.day_closed = day_closed;
         outcome.changed |= day_closed;
         outcome.copy = outcome.copy.or(copy);
+    }
+    if open.end_earlier {
+        outcome.ended_earlier = end_earlier(ctx, open, tracker, now);
+        outcome.changed |= outcome.ended_earlier.is_some();
     }
     if open.week {
         outcome.copy = outcome.copy.or(week(ctx, open, tracker, now));
@@ -832,6 +856,172 @@ fn end_day(
         return (true, payload);
     }
     (false, payload)
+}
+
+/// What the user answered the end-earlier offer, when they did not cut.
+fn end_earlier(
+    ctx: &Context,
+    open: &mut OpenWindows,
+    tracker: &mut Tracker,
+    now: DateTime<Local>,
+) -> Option<EndedEarlier> {
+    let mut placing = std::mem::take(&mut open.placing);
+    let since = tracker.focused_since();
+    let name = tracker.focused_name().to_owned();
+    let crosses_days = since.date_naive() < now.date_naive();
+    if open.cut_prefilled != Some(since) {
+        open.cut_date = since.format("%Y-%m-%d").to_string();
+        open.cut_time = format::clock_time(since.time());
+        open.cut_prefilled = Some(since);
+    }
+    let mut date = open.cut_date.clone();
+    let mut time = open.cut_time.clone();
+    let offered = open.end_earlier_offered;
+    let mut cut_now: Option<DateTime<Local>> = None;
+    let mut not_now = false;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "end_earlier",
+        "WipTracker — end earlier",
+        [460.0, 300.0],
+        &mut placing,
+        &mut still_open,
+        |ui| {
+            let palette = theme::current();
+            ui.heading("End earlier");
+            ui.add_space(4.0);
+            let since_text = if crosses_days {
+                since.format("%A, %-d %B at %H:%M").to_string()
+            } else {
+                since.format("%H:%M").to_string()
+            };
+            ui.label(format!("'{name}' has been focused since {since_text}."));
+            ui.label(
+                RichText::new(
+                    "When did you really stop? Everything after that comes off the task; \
+                     it keeps running from now.",
+                )
+                .color(palette.text_dim),
+            );
+            ui.add_space(8.0);
+
+            let date_ok = if crosses_days {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("day").color(palette.text_dim));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut date)
+                            .hint_text("YYYY-MM-DD")
+                            .desired_width(110.0),
+                    );
+                    ui.label(RichText::new("time").color(palette.text_dim));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut time)
+                            .hint_text("HH:MM")
+                            .desired_width(70.0),
+                    );
+                });
+                NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("time").color(palette.text_dim));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut time)
+                            .hint_text("HH:MM")
+                            .desired_width(70.0),
+                    );
+                });
+                Some(now.date_naive())
+            };
+            let cut = date_ok
+                .zip(format::parse_clock(&time))
+                .and_then(|(day, at)| Local.from_local_datetime(&day.and_time(at)).earliest());
+            ui.add_space(6.0);
+
+            let verdict = match cut {
+                None => Err("not a day and a time".to_owned()),
+                Some(cut) => tracker
+                    .end_earlier_preview(cut, now)
+                    .map_err(|error| error.to_string())
+                    .map(|removal| (cut, removal)),
+            };
+            let ready = match &verdict {
+                Ok((_, removal)) => {
+                    let total: Duration = removal.iter().map(|(_, taken)| *taken).sum();
+                    let days = removal
+                        .iter()
+                        .map(|(day, taken)| {
+                            format!("{} {}", day.format("%a"), format::coarse(*taken))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    if total.is_zero() {
+                        ui.label(RichText::new("Nothing to take off.").color(palette.text_dim));
+                        false
+                    } else {
+                        ui.label(format!(
+                            "Takes {} off '{name}': {days}.",
+                            format::coarse(total)
+                        ));
+                        true
+                    }
+                }
+                Err(reason) => {
+                    ui.label(
+                        RichText::new(reason)
+                            .color(egui::Color32::from_rgb(0xE8, 0x7A, 0x7A))
+                            .small(),
+                    );
+                    false
+                }
+            };
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if widgets::action_button(ui, "End there", true).clicked()
+                    && ready
+                    && let Ok((cut, _)) = verdict
+                {
+                    cut_now = Some(cut);
+                }
+                if offered && widgets::action_button(ui, "Not now", false).clicked() {
+                    not_now = true;
+                }
+            });
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "The day of the cut ends there and is closed; days in between that \
+                     held nothing else disappear.",
+                )
+                .color(palette.text_dim)
+                .small(),
+            );
+        },
+    );
+
+    open.placing = placing;
+    open.cut_date = date;
+    open.cut_time = time;
+    let mut ended = None;
+    if let Some(cut) = cut_now
+        && let Ok(removed) = tracker.end_earlier(cut, now)
+    {
+        ended = Some(EndedEarlier {
+            task: name,
+            cut,
+            removed,
+        });
+        still_open = false;
+    }
+    if not_now {
+        still_open = false;
+    }
+    open.end_earlier = still_open;
+    if !still_open {
+        open.end_earlier_offered = false;
+    }
+    ended
 }
 
 /// Returns any JSON the user asked to copy.
