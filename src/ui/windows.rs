@@ -858,7 +858,9 @@ fn end_day(
     (false, payload)
 }
 
-/// What the user answered the end-earlier offer, when they did not cut.
+/// The end-earlier window: since when the focused task has been focused, a day and a
+/// clock time for the cut, and what the cut would take off. Returns what it took once
+/// the user cut; the window closes with it.
 fn end_earlier(
     ctx: &Context,
     open: &mut OpenWindows,
