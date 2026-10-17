@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Local, NaiveDate, TimeDelta, TimeZone as _};
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone as _};
 
 use crate::domain::day::DayRecord;
 use crate::domain::ports::Snapshot;
@@ -41,6 +41,11 @@ pub struct Tracker {
     day_timer: Duration,
     /// Auto-pause once the user has been idle this long. Zero means never.
     idle_pause: Duration,
+    /// The clock time at which the pause reminder asks for a pause. `None` means never.
+    pause_reminder: Option<NaiveTime>,
+    /// When a reminder put off with "not now" asks again. Not stored: after a restart the
+    /// grace window decides, like on any other start.
+    reminder_snoozed_until: Option<DateTime<Local>>,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
 }
@@ -59,6 +64,8 @@ impl Tracker {
             default_timer: Duration::ZERO,
             day_timer: Duration::ZERO,
             idle_pause: Duration::ZERO,
+            pause_reminder: None,
+            reminder_snoozed_until: None,
             active_since: now,
         }
     }
@@ -95,6 +102,8 @@ impl Tracker {
             default_timer: snapshot.default_timer,
             day_timer: snapshot.day_timer,
             idle_pause: snapshot.idle_pause,
+            pause_reminder: snapshot.pause_reminder,
+            reminder_snoozed_until: None,
             active_since: resume_from,
         };
         tracker
@@ -127,6 +136,7 @@ impl Tracker {
             default_timer: self.default_timer,
             day_timer: self.day_timer,
             idle_pause: self.idle_pause,
+            pause_reminder: self.pause_reminder,
             last_seen: Some(self.active_since),
             show_duration,
             decorated,
@@ -402,6 +412,77 @@ impl Tracker {
         if let Some(task) = self.tasks.get_mut(&focused) {
             task.total = task.total.saturating_sub(taken);
         }
+    }
+
+    /// How late the pause reminder may still ask after its time. A reminder for 12:30
+    /// belongs to 12:30: a lid closed over lunch or a restart may delay it a little, a
+    /// start at 14:00 has missed it for the day.
+    pub const PAUSE_REMINDER_GRACE: TimeDelta = TimeDelta::minutes(30);
+
+    /// How long "not now" puts the pause reminder off.
+    pub const PAUSE_REMINDER_SNOOZE: TimeDelta = TimeDelta::minutes(15);
+
+    pub fn pause_reminder(&self) -> Option<NaiveTime> {
+        self.pause_reminder
+    }
+
+    /// Sets the clock time the pause reminder asks at. `None` switches it off.
+    pub fn set_pause_reminder(&mut self, at: Option<NaiveTime>) {
+        self.pause_reminder = at;
+    }
+
+    /// Whether the pause reminder should ask now. Once a day, on a tick inside the grace
+    /// window after its time, while a task other than the pause is focused; and again
+    /// after every snooze until the pause is focused.
+    ///
+    /// The pause being focused inside the window counts as handled for the day, so
+    /// ending a real lunch at 12:50 does not get asked for one.
+    pub fn take_due_pause_reminder(&mut self, now: DateTime<Local>) -> bool {
+        if self.focused_id() == PAUSE_ID {
+            self.reminder_snoozed_until = None;
+            if self.pause_reminder_window_holds(now) {
+                self.history
+                    .entry(now.date_naive())
+                    .or_default()
+                    .pause_reminded = true;
+            }
+            return false;
+        }
+        if let Some(until) = self.reminder_snoozed_until {
+            if now < until {
+                return false;
+            }
+            self.reminder_snoozed_until = None;
+            return true;
+        }
+        if !self.pause_reminder_window_holds(now) {
+            return false;
+        }
+        let record = self.history.entry(now.date_naive()).or_default();
+        if record.pause_reminded {
+            return false;
+        }
+        record.pause_reminded = true;
+        true
+    }
+
+    /// Puts the pause reminder off by [`Self::PAUSE_REMINDER_SNOOZE`].
+    pub fn snooze_pause_reminder(&mut self, now: DateTime<Local>) {
+        self.reminder_snoozed_until = Some(now + Self::PAUSE_REMINDER_SNOOZE);
+    }
+
+    /// Whether `now` lies within the grace window after today's reminder time.
+    fn pause_reminder_window_holds(&self, now: DateTime<Local>) -> bool {
+        let Some(at) = self.pause_reminder else {
+            return false;
+        };
+        let Some(due) = Local
+            .from_local_datetime(&now.date_naive().and_time(at))
+            .earliest()
+        else {
+            return false;
+        };
+        now >= due && now - due <= Self::PAUSE_REMINDER_GRACE
     }
 
     /// Sets the timer for the whole day's work. Zero switches the alarm off.
@@ -854,6 +935,7 @@ mod tests {
             last_seen: None,
             launcher_offer_dismissed: false,
             idle_pause: Duration::ZERO,
+            pause_reminder: None,
             show_duration: true,
             decorated: None,
             taskbar: None,
@@ -1154,6 +1236,117 @@ mod tests {
 
     /// The error paths of the stack operations: unknown ids, wrong states, and the
     /// zero-credit edge of an empty day.
+    fn clock(hour: u32, minute: u32) -> NaiveTime {
+        NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time")
+    }
+
+    fn minutes_after(hour: u32, minutes: i64) -> DateTime<Local> {
+        at(1, hour) + TimeDelta::minutes(minutes)
+    }
+
+    /// The reminder asks once on a tick inside its window, and again the next day.
+    #[test]
+    fn the_pause_reminder_asks_once_a_day_inside_its_window() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_pause_reminder(Some(clock(12, 30)));
+        tracker.push_new_task(at(1, 9));
+
+        assert!(!tracker.take_due_pause_reminder(minutes_after(12, 29)));
+        assert!(tracker.take_due_pause_reminder(minutes_after(12, 30)));
+        assert!(
+            !tracker.take_due_pause_reminder(minutes_after(12, 31)),
+            "asked already"
+        );
+        assert!(
+            tracker.take_due_pause_reminder(at(2, 12) + TimeDelta::minutes(40)),
+            "a new day asks again"
+        );
+    }
+
+    /// A reminder for 12:30 belongs to 12:30: half an hour late is still fine, two
+    /// hours late is missed for the day.
+    #[test]
+    fn the_pause_reminder_is_missed_after_the_grace_window() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_pause_reminder(Some(clock(12, 30)));
+        tracker.push_new_task(at(1, 9));
+
+        assert!(!tracker.take_due_pause_reminder(minutes_after(13, 1)));
+        assert!(!tracker.take_due_pause_reminder(at(1, 14)));
+    }
+
+    /// Already pausing inside the window is the answer: nobody gets asked for the pause
+    /// they are taking, not even when they end it inside the window.
+    #[test]
+    fn a_pause_inside_the_window_counts_as_handled() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_pause_reminder(Some(clock(12, 30)));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.select(PAUSE_ID, at(1, 12)).expect("select pause");
+
+        assert!(!tracker.take_due_pause_reminder(minutes_after(12, 30)));
+        tracker
+            .select(task, minutes_after(12, 40))
+            .expect("select task");
+        assert!(!tracker.take_due_pause_reminder(minutes_after(12, 41)));
+    }
+
+    /// "Not now" asks again a quarter of an hour later, as often as it takes, and stops
+    /// once the pause is focused.
+    #[test]
+    fn not_now_asks_again_every_quarter_hour_until_the_pause_starts() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_pause_reminder(Some(clock(12, 30)));
+        tracker.push_new_task(at(1, 9));
+        assert!(tracker.take_due_pause_reminder(minutes_after(12, 30)));
+
+        tracker.snooze_pause_reminder(minutes_after(12, 30));
+        assert!(!tracker.take_due_pause_reminder(minutes_after(12, 44)));
+        assert!(tracker.take_due_pause_reminder(minutes_after(12, 45)));
+
+        tracker.snooze_pause_reminder(minutes_after(12, 45));
+        assert!(
+            tracker.take_due_pause_reminder(at(1, 13)),
+            "well past the grace"
+        );
+
+        tracker.snooze_pause_reminder(at(1, 13));
+        tracker
+            .select(PAUSE_ID, minutes_after(13, 5))
+            .expect("select pause");
+        assert!(!tracker.take_due_pause_reminder(minutes_after(13, 5)));
+        assert!(
+            !tracker.take_due_pause_reminder(minutes_after(13, 15)),
+            "the pause ended the snooze"
+        );
+    }
+
+    /// Without a reminder time nobody is ever asked.
+    #[test]
+    fn no_reminder_time_means_no_pause_reminder() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.push_new_task(at(1, 9));
+        assert!(!tracker.take_due_pause_reminder(minutes_after(12, 30)));
+    }
+
+    /// The reminder time survives a save and a restart; the snooze does not.
+    #[test]
+    fn the_pause_reminder_time_is_persisted() {
+        let mut tracker = Tracker::new(at(1, 9));
+        tracker.set_pause_reminder(Some(clock(12, 30)));
+        tracker.push_new_task(at(1, 9));
+        assert!(tracker.take_due_pause_reminder(minutes_after(12, 30)));
+        tracker.snooze_pause_reminder(minutes_after(12, 30));
+
+        let snapshot = tracker.snapshot(true, None, None);
+        let mut restored = Tracker::from_snapshot(&snapshot, minutes_after(12, 46));
+        assert_eq!(restored.pause_reminder(), Some(clock(12, 30)));
+        assert!(
+            !restored.take_due_pause_reminder(minutes_after(12, 46)),
+            "asked today already, and the snooze is gone"
+        );
+    }
+
     #[test]
     fn the_refusals_name_their_reasons() {
         let mut tracker = Tracker::new(at(1, 9));

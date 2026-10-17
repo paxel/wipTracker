@@ -48,6 +48,9 @@ pub struct Snapshot {
     /// because watching the user's input is opt-in.
     #[serde(default)]
     pub idle_pause: std::time::Duration,
+    /// The clock time the pause reminder asks for a pause at. `None` means never.
+    #[serde(default)]
+    pub pause_reminder: Option<chrono::NaiveTime>,
     /// Whether the light palette is used instead of the dark one.
     #[serde(default)]
     pub light_mode: bool,

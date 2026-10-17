@@ -30,6 +30,9 @@ pub struct DayRecord {
     /// tomorrow's — starts unmuted, which is what makes the reminder come back daily.
     #[serde(default)]
     pub nag_muted: bool,
+    /// Whether the pause reminder has asked today, or found the pause already running.
+    #[serde(default)]
+    pub pause_reminded: bool,
 }
 
 impl DayRecord {

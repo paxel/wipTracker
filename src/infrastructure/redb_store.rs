@@ -23,6 +23,7 @@ const KEY_DEFAULT_TIMER: &str = "default_timer";
 const KEY_DAY_TIMER: &str = "day_timer";
 const KEY_LAUNCHER_DISMISSED: &str = "launcher_offer_dismissed";
 const KEY_IDLE_PAUSE: &str = "idle_pause";
+const KEY_PAUSE_REMINDER: &str = "pause_reminder";
 const KEY_LAST_SEEN: &str = "last_seen";
 const KEY_SHOW_DURATION: &str = "show_duration";
 const KEY_DECORATED: &str = "decorated";
@@ -146,6 +147,11 @@ impl Store for RedbStore {
             .transpose()
             .map_err(|error| StoreError::Corrupt(error.to_string()))?
             .unwrap_or_default();
+        let pause_reminder = parse(read_meta(KEY_PAUSE_REMINDER)?)?
+            .map(serde_json::from_value::<Option<chrono::NaiveTime>>)
+            .transpose()
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            .flatten();
         let launcher_offer_dismissed = parse(read_meta(KEY_LAUNCHER_DISMISSED)?)?
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
@@ -178,6 +184,7 @@ impl Store for RedbStore {
             window_pos,
             launcher_offer_dismissed,
             idle_pause,
+            pause_reminder,
             light_mode,
             hue_shift,
         }))
@@ -227,6 +234,10 @@ impl Store for RedbStore {
                 &serde_json::json!(snapshot.launcher_offer_dismissed),
             )?;
             put(KEY_IDLE_PAUSE, &serde_json::json!(snapshot.idle_pause))?;
+            put(
+                KEY_PAUSE_REMINDER,
+                &serde_json::json!(snapshot.pause_reminder),
+            )?;
             put(
                 KEY_SHOW_DURATION,
                 &serde_json::json!(snapshot.show_duration),
@@ -315,6 +326,7 @@ mod tests {
             last_seen: Some(created),
             launcher_offer_dismissed: true,
             idle_pause: Duration::from_secs(600),
+            pause_reminder: chrono::NaiveTime::from_hms_opt(12, 30, 0),
             show_duration: false,
             decorated: Some(true),
             taskbar: Some(false),
