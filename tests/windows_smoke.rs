@@ -890,3 +890,165 @@ fn a_span_through_midnight_is_offered_once_on_the_first_press() {
     press(&mut harness);
     assert!(!harness.state().windows().end_earlier, "once per span");
 }
+
+/// Something that is not a clock time is named as such and sets nothing.
+#[test]
+fn a_bad_reminder_time_is_refused() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().timer = true;
+    harness.run();
+
+    harness
+        .get_by_label_contains("pause reminder at")
+        .click_accesskit();
+    harness.run();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text("noon".to_owned()));
+    harness.run();
+    harness.get_by_label("set").click_accesskit();
+    harness.run();
+
+    assert_eq!(harness.state().tracker().pause_reminder(), None);
+    assert!(harness.query_all_by_label("not a time").count() > 0);
+    assert!(harness.state().windows().timer, "the window stays open");
+}
+
+/// The idle row offers minutes, a task row offers hours, and each sets its own target.
+#[test]
+fn the_timer_window_sets_the_idle_pause_and_a_task() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().timer = true;
+    harness.run();
+
+    harness
+        .get_by_label_contains("auto-pause when idle")
+        .click_accesskit();
+    harness.run();
+    harness.get_by_label("10m").click_accesskit();
+    harness.run();
+    assert_eq!(
+        harness.state().tracker().idle_pause(),
+        std::time::Duration::from_secs(600)
+    );
+
+    // The bar shows the name too; the timer row carries its "off" behind it.
+    harness
+        .get_by_label_contains("write the report   off")
+        .click_accesskit();
+    harness.run();
+    harness.get_by_label("2h").click_accesskit();
+    harness.run();
+    let tracker = harness.state().tracker();
+    let focused = tracker.focused_id();
+    assert_eq!(
+        tracker.task(focused).map(|task| task.timer),
+        Some(std::time::Duration::from_secs(2 * 3600))
+    );
+}
+
+/// The week window walks backwards and forwards, says when a week holds nothing, and
+/// refuses a date that is not one.
+#[test]
+fn the_week_window_moves_between_weeks() {
+    use chrono::Datelike as _;
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    harness.state_mut().windows_mut().week = true;
+    harness.run();
+
+    let this_week = Local::now().date_naive().iso_week().week();
+    assert!(
+        harness
+            .query_all_by_label(format!("Week {this_week}").as_str())
+            .count()
+            > 0
+    );
+
+    // Two weeks back is empty whatever the weekday: the data is six hours old.
+    harness.get_by_label("previous week").click_accesskit();
+    harness.run();
+    harness.get_by_label("previous week").click_accesskit();
+    harness.run();
+    assert!(
+        harness
+            .query_all_by_label("Nothing was tracked in this week.")
+            .count()
+            > 0
+    );
+
+    harness.get_by_label("next week").click_accesskit();
+    harness.run();
+    harness.get_by_label("this week").click_accesskit();
+    harness.run();
+    assert!(
+        harness
+            .query_all_by_label(format!("Week {this_week}").as_str())
+            .count()
+            > 0
+    );
+
+    let field = harness.get_by_role(egui::accesskit::Role::TextInput);
+    field.focus();
+    field.type_text("nope");
+    harness.run();
+    assert!(harness.query_all_by_label("not a date").count() > 0);
+}
+
+/// Reaching the day timer sounds the day's own noise, once.
+#[test]
+fn a_reached_day_timer_sounds_the_day_alarm() {
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut tracker = Tracker::new(at(10, 9));
+    tracker.push_new_task(at(10, 9));
+    tracker.set_day_timer(std::time::Duration::from_secs(1));
+    tracker.accrue(at(10, 10));
+
+    let alarm = SilentAlarm(counter.clone());
+    let mut harness = Harness::builder()
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, tracker);
+            app.set_alarm(Box::new(alarm));
+            app
+        });
+    harness.run();
+    harness.run();
+
+    assert_eq!(
+        counter.load(std::sync::atomic::Ordering::Relaxed),
+        DAY_SOUND
+    );
+    assert_eq!(harness.state().day_alarms_sounded(), 1);
+}
+
+/// A cut that is not a time is named as such, and the button does nothing.
+#[test]
+fn a_bad_cut_is_refused() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = harness(populated());
+    let since = harness.state().tracker().focused_since();
+    harness.state_mut().windows_mut().end_earlier = true;
+    harness.run();
+
+    // The field is prefilled with the span's start; typing onto it spoils the time.
+    let field = harness.get_by_role(egui::accesskit::Role::TextInput);
+    field.focus();
+    field.type_text("x");
+    harness.run();
+
+    assert!(harness.query_all_by_label("not a day and a time").count() > 0);
+    harness.get_by_label("End there").click_accesskit();
+    harness.run();
+    assert!(harness.state().windows().end_earlier, "the window stays");
+    assert_eq!(harness.state().tracker().focused_since(), since);
+}
