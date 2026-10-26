@@ -320,8 +320,10 @@ fn wanted_height(rows: &[Row], notices: usize) -> f32 {
 /// Draws the menu window and reports what was picked.
 pub fn show(ctx: &Context, context: &MenuContext<'_>) -> MenuOutcome {
     let rows = rows(context);
-    let notices =
-        usize::from(context.notice.is_some()) + usize::from(context.platform_notice.is_some());
+    let notices = [context.notice.is_some(), context.platform_notice.is_some()]
+        .into_iter()
+        .filter(|&shown| shown)
+        .count();
     let wanted = wanted_height(&rows, notices);
     let (position, height) = context.placement.near_bar(wanted);
 

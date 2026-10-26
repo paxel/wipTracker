@@ -157,7 +157,7 @@ pub fn stack_text(palette: &Palette, depth: usize, rows: usize) -> Color32 {
     if depth == 0 || rows <= 1 {
         return palette.text;
     }
-    let t = depth as f32 / (rows - 1) as f32;
+    let t = depth as f32 / rows.saturating_sub(1) as f32;
     palette.text.lerp_to_gamma(palette.text_dim, t)
 }
 

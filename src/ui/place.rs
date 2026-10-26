@@ -108,7 +108,12 @@ impl Placement {
             return Some(position);
         }
         let screen = self.screen?;
-        Some(screen.min + ((screen.size() - size) / 2.0).max(Vec2::ZERO))
+        // Component-wise f32 math: `arithmetic_side_effects` flags egui's vector operators.
+        let offset = |free: f32| (free / 2.0).max(0.0);
+        Some(egui::pos2(
+            screen.min.x + offset(screen.width() - size.x),
+            screen.min.y + offset(screen.height() - size.y),
+        ))
     }
 }
 

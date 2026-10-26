@@ -224,8 +224,8 @@ mod windows {
             found.push((
                 f64::from(rect.left),
                 f64::from(rect.top),
-                f64::from(rect.right - rect.left),
-                f64::from(rect.bottom - rect.top),
+                f64::from(rect.right) - f64::from(rect.left),
+                f64::from(rect.bottom) - f64::from(rect.top),
             ));
         }
         1

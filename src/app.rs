@@ -456,9 +456,10 @@ impl WipTracker {
     fn journal_start(&mut self, last_seen: Option<DateTime<Local>>, now: DateTime<Local>) {
         let focused = self.tracker.focused_name().to_owned();
         let gap = last_seen.map(|last| {
-            let span = (now - last).to_std().unwrap_or_default();
+            let gap = now.signed_duration_since(last);
+            let span = gap.to_std().unwrap_or_default();
             let recovered =
-                now - last <= Tracker::RECOVERABLE_GAP && last.date_naive() == now.date_naive();
+                gap <= Tracker::RECOVERABLE_GAP && last.date_naive() == now.date_naive();
             let verdict = if recovered {
                 "credited"
             } else {
@@ -942,7 +943,7 @@ impl eframe::App for WipTracker {
             self.dirty = true;
         }
         if self.tracker.take_due_day_alarm(now) {
-            self.day_alarms_sounded += 1;
+            self.day_alarms_sounded = self.day_alarms_sounded.saturating_add(1);
             if let Some(alarm) = &self.alarm {
                 alarm.sound_day_over();
             }
@@ -1070,7 +1071,7 @@ impl eframe::App for WipTracker {
             if hint.progress.is_some() || since.elapsed() >= hint::HOVER_DELAY {
                 hint::show(&ctx, hint, &placement);
             } else {
-                ctx.request_repaint_after(hint::HOVER_DELAY - since.elapsed());
+                ctx.request_repaint_after(hint::HOVER_DELAY.saturating_sub(since.elapsed()));
             }
         } else {
             self.hint_since = None;

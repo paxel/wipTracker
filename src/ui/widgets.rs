@@ -271,7 +271,7 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
         ui.painter().rect_filled(rect, 4.0, fill);
     }
     ui.painter().text(
-        rect.left_center() + egui::vec2(8.0, 0.0),
+        egui::pos2(rect.left() + 8.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         font,
@@ -290,7 +290,7 @@ pub fn action_button(ui: &mut Ui, label: &str, primary: bool) -> Response {
     let font = egui::FontId::proportional(14.0);
     let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, palette.text));
     let pad = egui::vec2(14.0, 6.0);
-    let (rect, response) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
+    let (rect, response) = ui.allocate_exact_size(galley.rect.expand2(pad).size(), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     if !ui.is_rect_visible(rect) {
         return response;
@@ -312,7 +312,8 @@ pub fn action_button(ui: &mut Ui, label: &str, primary: bool) -> Response {
         Stroke::new(1.0, border),
         egui::StrokeKind::Inside,
     );
-    ui.painter().galley(rect.min + pad, galley, palette.text);
+    ui.painter()
+        .galley(rect.shrink2(pad).min, galley, palette.text);
     response
 }
 

@@ -615,7 +615,8 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                     ui.horizontal_wrapped(|ui| {
                         for (label, minutes) in choices.iter().copied() {
                             if ui.button(label).clicked() {
-                                chosen = Some((*id, Duration::from_secs(minutes * 60)));
+                                chosen =
+                                    Some((*id, Duration::from_secs(minutes.saturating_mul(60))));
                             }
                         }
                     });
@@ -950,7 +951,9 @@ fn end_earlier(
             };
             let ready = match &verdict {
                 Ok((_, removal)) => {
-                    let total: Duration = removal.iter().map(|(_, taken)| *taken).sum();
+                    let total = removal
+                        .iter()
+                        .fold(Duration::ZERO, |sum, (_, taken)| sum.saturating_add(*taken));
                     let days = removal
                         .iter()
                         .map(|(day, taken)| {
@@ -1055,7 +1058,9 @@ fn week(
             .iter()
             .map(|day| tracker.duration_on(*id, *day))
             .collect();
-        let total = per_day.iter().sum();
+        let total = per_day
+            .iter()
+            .fold(Duration::ZERO, |sum, d| sum.saturating_add(*d));
         task_rows.push((task.name.clone(), per_day, total));
     }
     task_rows.sort_by_key(|(_, _, total)| std::cmp::Reverse(*total));
@@ -1178,9 +1183,11 @@ fn week(
                     ui.label(RichText::new("total").strong().color(palette.text));
                     let mut week_total = Duration::ZERO;
                     for (index, _) in days.iter().enumerate() {
-                        let column: Duration =
-                            task_rows.iter().map(|(_, per_day, _)| per_day[index]).sum();
-                        week_total += column;
+                        let column = task_rows
+                            .iter()
+                            .filter_map(|(_, per_day, _)| per_day.get(index).copied())
+                            .fold(Duration::ZERO, Duration::saturating_add);
+                        week_total = week_total.saturating_add(column);
                         right_aligned(
                             ui,
                             RichText::new(format::coarse(column))

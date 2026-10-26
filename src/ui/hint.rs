@@ -51,8 +51,8 @@ fn wanted_height(hint: &Hint) -> f32 {
     let lines: usize = hint
         .text
         .lines()
-        .map(|line| 1 + line.chars().count() / CHARS_PER_LINE)
-        .sum();
+        .map(|line| (line.chars().count() / CHARS_PER_LINE).saturating_add(1))
+        .fold(0, usize::saturating_add);
     lines as f32 * LINE_HEIGHT + 2.0 * PADDING
 }
 

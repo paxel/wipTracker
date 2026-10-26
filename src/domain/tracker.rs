@@ -95,13 +95,19 @@ impl Tracker {
             .last_seen
             .filter(|last| {
                 *last <= now
-                    && now - *last <= Self::RECOVERABLE_GAP
+                    && now.signed_duration_since(*last) <= Self::RECOVERABLE_GAP
                     && last.date_naive() == now.date_naive()
             })
             .unwrap_or(now);
 
         let mut tracker = Self {
-            next_id: snapshot.tasks.keys().copied().max().unwrap_or(PAUSE_ID) + 1,
+            next_id: snapshot
+                .tasks
+                .keys()
+                .copied()
+                .max()
+                .unwrap_or(PAUSE_ID)
+                .saturating_add(1),
             tasks: snapshot.tasks.clone(),
             stack: snapshot.stack.clone(),
             history: snapshot.history.clone(),
@@ -194,10 +200,15 @@ impl Tracker {
     /// Older ones are still in the data and in the week overview; they are simply not
     /// offered for reviving, so the list stays readable after a year of use.
     pub fn recently_finished(&self, days: i64, now: DateTime<Local>) -> Vec<&Task> {
-        let cutoff = now - chrono::TimeDelta::days(days);
+        // A span past chrono's range has no cutoff: everything finished counts.
+        let cutoff =
+            chrono::TimeDelta::try_days(days).and_then(|span| now.checked_sub_signed(span));
         self.finished_tasks()
             .into_iter()
-            .filter(|task| task.finished_at.is_some_and(|at| at >= cutoff))
+            .filter(|task| {
+                task.finished_at
+                    .is_some_and(|at| cutoff.is_none_or(|cutoff| at >= cutoff))
+            })
             .collect()
     }
 
@@ -251,17 +262,17 @@ impl Tracker {
         let focused = self.focused_id();
         let mut credited = Duration::ZERO;
         for (day, start, end) in split_by_day(from, now) {
-            let Ok(amount) = (end - start).to_std() else {
+            let Ok(amount) = end.signed_duration_since(start).to_std() else {
                 continue;
             };
             self.history
                 .entry(day)
                 .or_default()
                 .credit(focused, amount, start, end);
-            credited += amount;
+            credited = credited.saturating_add(amount);
         }
         if let Some(task) = self.tasks.get_mut(&focused) {
-            task.total += credited;
+            task.total = task.total.saturating_add(credited);
         }
     }
 
@@ -269,9 +280,9 @@ impl Tracker {
     pub fn push_new_task(&mut self, now: DateTime<Local>) -> TaskId {
         self.accrue(now);
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = self.next_id.saturating_add(1);
         let name = format!("new task {}", self.next_number);
-        self.next_number += 1;
+        self.next_number = self.next_number.saturating_add(1);
         self.tasks
             .insert(id, Task::new(id, name, now).with_timer(self.default_timer));
         self.stack.push(id);
@@ -378,7 +389,7 @@ impl Tracker {
     /// record's start and end are for.
     pub fn worked_on(&self, day: NaiveDate) -> Duration {
         self.history.get(&day).map_or(Duration::ZERO, |record| {
-            record.total() - record.duration_of(PAUSE_ID)
+            record.total().saturating_sub(record.duration_of(PAUSE_ID))
         })
     }
 
@@ -426,7 +437,7 @@ impl Tracker {
             return;
         };
         let taken = span.min(*credited);
-        *credited -= taken;
+        *credited = credited.saturating_sub(taken);
         if let Some(task) = self.tasks.get_mut(&focused) {
             task.total = task.total.saturating_sub(taken);
         }
@@ -486,7 +497,7 @@ impl Tracker {
 
     /// Puts the pause reminder off by [`Self::PAUSE_REMINDER_SNOOZE`].
     pub fn snooze_pause_reminder(&mut self, now: DateTime<Local>) {
-        self.reminder_snoozed_until = Some(now + Self::PAUSE_REMINDER_SNOOZE);
+        self.reminder_snoozed_until = now.checked_add_signed(Self::PAUSE_REMINDER_SNOOZE);
     }
 
     /// Whether `now` lies within the grace window after today's reminder time.
@@ -500,7 +511,7 @@ impl Tracker {
         else {
             return false;
         };
-        now >= due && now - due <= Self::PAUSE_REMINDER_GRACE
+        now >= due && now.signed_duration_since(due) <= Self::PAUSE_REMINDER_GRACE
     }
 
     /// Sets the timer for the whole day's work. Zero switches the alarm off.
@@ -529,7 +540,9 @@ impl Tracker {
         };
         let due = match record.day_alarmed {
             None => true,
-            Some(last) => !record.nag_muted && now - last >= Self::NAG_INTERVAL,
+            Some(last) => {
+                !record.nag_muted && now.signed_duration_since(last) >= Self::NAG_INTERVAL
+            }
         };
         if due {
             record.day_alarmed = Some(now);
@@ -635,13 +648,18 @@ impl Tracker {
         }
         let mut removal = Vec::new();
         for (day, start, end) in split_by_day(cut, now) {
-            let credited = self.duration_on(focused, day)
-                + if day == now.date_naive() {
-                    (now - self.active_since).to_std().unwrap_or_default()
-                } else {
-                    Duration::ZERO
-                };
-            let span = (end - start).to_std().unwrap_or_default();
+            let running = if day == now.date_naive() {
+                now.signed_duration_since(self.active_since)
+                    .to_std()
+                    .unwrap_or_default()
+            } else {
+                Duration::ZERO
+            };
+            let credited = self.duration_on(focused, day).saturating_add(running);
+            let span = end
+                .signed_duration_since(start)
+                .to_std()
+                .unwrap_or_default();
             let taken = span.min(credited);
             if !taken.is_zero() {
                 removal.push((day, taken));
@@ -676,7 +694,7 @@ impl Tracker {
                     record.per_task.remove(&focused);
                 }
             }
-            removed += taken;
+            removed = removed.saturating_add(taken);
             if day == cut.date_naive() && day != today {
                 record.ended_at = Some(cut);
                 record.closed = true;

@@ -255,7 +255,9 @@ pub fn set_autostart(enabled: bool, exe: &Path) -> io::Result<()> {
 pub fn set_autostart_in(config_home: &Path, enabled: bool, exe: &Path) -> io::Result<()> {
     let target = config_home.join("autostart/wiptracker.desktop");
     if enabled {
-        std::fs::create_dir_all(target.parent().expect("autostart has a parent"))?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(target, entry_for(exe))
     } else {
         match std::fs::remove_file(target) {

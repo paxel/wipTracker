@@ -41,7 +41,9 @@ impl DayRecord {
     }
 
     pub fn total(&self) -> Duration {
-        self.per_task.values().sum()
+        self.per_task
+            .values()
+            .fold(Duration::ZERO, |sum, d| sum.saturating_add(*d))
     }
 
     /// Credits `task` with `amount` collected between `from` and `to`.
@@ -55,7 +57,8 @@ impl DayRecord {
         if amount.is_zero() {
             return;
         }
-        *self.per_task.entry(task).or_default() += amount;
+        let credited = self.per_task.entry(task).or_default();
+        *credited = credited.saturating_add(amount);
         self.started_at = Some(match self.started_at {
             Some(existing) => existing.min(from),
             None => from,
