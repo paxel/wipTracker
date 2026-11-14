@@ -7,8 +7,13 @@ window and idle state, and no file from anybody else. The threat is the supply c
 the dependencies, the CI that builds the release, and the files Homebrew and Scoop hand
 to other people.
 
-**Scope.** The CI and the release supply chain, plus lints in the code. A threat model,
-input limits and fuzzing are out: there is no untrusted input to fuzz.
+**Scope.** The CI and the release supply chain, plus lints in the code. A threat model
+and input limits are out: there is no untrusted input.
+
+**Fuzzing.** Amended later on 2026-11-14: cargo-fuzz targets in `fuzz/` for the clock
+parser and for loading a damaged store file run weekly. The store file can be damaged,
+and a panic while loading it is exactly what the crate-root denies are meant to rule
+out; fuzzing is how that is checked.
 
 **Lints.** The crate roots deny panicking operations in shipped code (unwrap, expect,
 panic, todo, unimplemented, unreachable, indexing, string slicing, overflowing

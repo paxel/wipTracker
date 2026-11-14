@@ -1,0 +1,7 @@
+target/
+corpus/
+artifacts/
+coverage/
+# Not committed: the fuzz crate ships nothing, and its dependencies are the main
+# crate's plus libfuzzer-sys, which osv-scanner already checks in the root Cargo.lock.
+Cargo.lock
