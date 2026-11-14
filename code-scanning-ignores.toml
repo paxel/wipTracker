@@ -4,3 +4,11 @@
 # the rule as GitHub reports them, says why the finding stays, and when the gate fails
 # again: that is the review. Then fix it, or move the date with a reason. Nothing is
 # dismissed in GitHub; the alerts stay open there.
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CodeReviewID"
+ignoreUntil = 2027-05-14
+reason = """Single maintainer: GitHub forbids approving one's own pull request, so no \
+merge can carry a second person's approval. Every change goes through a pull request \
+with green CI instead."""
