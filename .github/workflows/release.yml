@@ -107,7 +107,8 @@ jobs:
             libasound2-dev pkg-config \
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libvulkan1 mesa-vulkan-drivers desktop-file-utils libxss-dev
+            libvulkan1 mesa-vulkan-drivers desktop-file-utils libxss-dev \
+            xvfb xauth openbox xautomation libxkbcommon-x11-0
       - name: Tag matches the crate version
         run: |
           ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
@@ -115,7 +116,8 @@ jobs:
           [ "$ver" = "$tag" ] || { echo "tag v$tag != crate version $ver" >&2; exit 1; }
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo test --locked --all-features
+      # Under Xvfb with openbox, as in CI: the X11 desktop tests fail without a session.
+      - run: xvfb-run -a -s '-screen 0 1920x1600x24' sh -c 'openbox & sleep 2; cargo test --locked --all-features'
       - name: Coverage ratchet
         run: |
           cargo install cargo-tarpaulin --locked --version 0.37.6
