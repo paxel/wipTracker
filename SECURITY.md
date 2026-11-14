@@ -19,7 +19,8 @@ a release with the fix is out.
 
 Every push and pull request runs CodeQL and an OSV-Scanner dependency check, and
 SonarQube Cloud and OpenSSF Scorecard analyse the main branch. A release fails on a
-known vulnerability in a dependency or an open high or critical CodeQL alert. Every
+known vulnerability in a dependency or on any open code-scanning alert that is not
+accepted with a reason and a review date in `code-scanning-ignores.toml`. Every
 release file carries a build provenance attestation, and the release a source SBOM:
 
 ```bash

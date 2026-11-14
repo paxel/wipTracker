@@ -69,38 +69,33 @@ jobs:
             grab && NF { found = 1 }
             END { exit !found }
           ' CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $ver" >&2; exit 1; }
-      # CodeQL analyses branches, not tags: every open CodeQL alert on a branch that
-      # holds this commit is listed, and one of severity high or critical stops the
-      # release. Scorecard's alerts are report-only and not counted. A branch CodeQL never
-      # analysed is skipped; none analysed at all stops it too.
-      - name: No open high or critical CodeQL alert
+      # Code scanning analyses branches, not tags: every open alert on a branch that holds
+      # this commit counts, from every tool (CodeQL, Scorecard) and of every severity.
+      # tool/code_scanning_gate.py fails on each one that code-scanning-ignores.toml does
+      # not accept with a reason and a date. A branch never analysed is skipped; none
+      # analysed at all stops the release too.
+      - name: No open code-scanning alert that is not accepted
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha=$(git rev-parse HEAD)
           branches=$(git branch -r --contains "$sha" --format='%(refname:lstrip=3)' | grep -vx HEAD || true)
           analysed=0
-          blocking=0
+          : > "$RUNNER_TEMP/alerts.jsonl"
           for b in $branches; do
-            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$b&state=open&tool_name=CodeQL&per_page=100" \
-              --jq '.[] | [(.rule.security_severity_level // "-"), .rule.severity, .rule.id, .most_recent_instance.location.path, .html_url] | @tsv' \
-              > "$RUNNER_TEMP/alerts.tsv" 2> "$RUNNER_TEMP/error.txt"; then
+            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$b&state=open&per_page=100" \
+              --jq '.[]' >> "$RUNNER_TEMP/alerts.jsonl" 2> "$RUNNER_TEMP/error.txt"; then
               if grep -q 'no analysis found' "$RUNNER_TEMP/error.txt"; then
-                echo "$b: not analysed by CodeQL, skipped"
+                echo "$b: not analysed, skipped"
                 continue
               fi
               cat "$RUNNER_TEMP/error.txt" >&2
               exit 1
             fi
             analysed=$((analysed + 1))
-            echo "Open CodeQL alerts on $b (security severity, severity, rule, file, link):"
-            cat "$RUNNER_TEMP/alerts.tsv"
-            n=$(awk -F'\t' '$1 == "high" || $1 == "critical" || $2 == "error"' "$RUNNER_TEMP/alerts.tsv" | wc -l)
-            echo "$n of them high or critical"
-            blocking=$((blocking + n))
           done
-          [ "$analysed" -gt 0 ] || { echo "no CodeQL analysis on any branch that holds $sha" >&2; exit 1; }
-          [ "$blocking" -eq 0 ] || { echo "$blocking open high or critical CodeQL alerts" >&2; exit 1; }
+          [ "$analysed" -gt 0 ] || { echo "no code-scanning analysis on any branch that holds $sha" >&2; exit 1; }
+          python3 tool/code_scanning_gate.py "$RUNNER_TEMP/alerts.jsonl" code-scanning-ignores.toml
       - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
         with:
           components: rustfmt, clippy
