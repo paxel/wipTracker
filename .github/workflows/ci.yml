@@ -30,7 +30,7 @@ env:
 jobs:
   check:
     name: fmt, clippy, test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -69,7 +69,8 @@ jobs:
 
       - name: Test
         # The render tests need a Vulkan device; lavapipe from mesa-vulkan-drivers
-        # provides a software one on the runner.
+        # provides a software one on the runner. The Linux jobs stay on ubuntu-24.04:
+        # lavapipe on ubuntu-26.04 crashes the render tests with SIGSEGV.
         run: cargo test --locked --all-features
 
   cross:
@@ -104,7 +105,7 @@ jobs:
     # change that lowers coverage fails here, and a change that raises it is expected to
     # raise the floor in the same commit (scripts/coverage.sh does that when run locally).
     name: coverage ratchet
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
