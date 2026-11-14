@@ -2,6 +2,7 @@ target/
 corpus/
 artifacts/
 coverage/
-# Not committed: the fuzz crate ships nothing, and its dependencies are the main
-# crate's plus libfuzzer-sys, which osv-scanner already checks in the root Cargo.lock.
+# Not committed: the fuzz crate ships nothing. Its dependencies are the main crate's,
+# which osv-scanner checks in the root Cargo.lock, plus libfuzzer-sys, which is not
+# scanned; a committed copy would only repeat the root's ignores in a second place.
 Cargo.lock
