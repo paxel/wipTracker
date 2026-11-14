@@ -12,3 +12,10 @@ ignoreUntil = 2027-05-14
 reason = """Single maintainer: GitHub forbids approving one's own pull request, so no \
 merge can carry a second person's approval. Every change goes through a pull request \
 with green CI instead."""
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CIIBestPracticesID"
+ignoreUntil = 2027-05-14
+reason = """The OpenSSF Best Practices badge is a self-certification questionnaire; the \
+practices it asks for are checked by the gates themselves."""
