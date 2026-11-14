@@ -13,6 +13,17 @@ on:
     branches: ["**"]
   pull_request:
 
+# A newer push or pull request update cancels the older run of the same branch: head_ref
+# is the bare branch on pull request events, ref_name on pushes, so a push to a branch
+# with an open pull request shares one group instead of running the gate twice.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# The token only reads the code: no job here writes to the repository.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -21,15 +32,15 @@ jobs:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Install Linux GUI build dependencies
         run: |
@@ -54,12 +65,12 @@ jobs:
           bash -n packaging/mkapp.sh
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Test
         # The render tests need a Vulkan device; lavapipe from mesa-vulkan-drivers
         # provides a software one on the runner.
-        run: cargo test --all-features
+        run: cargo test --locked --all-features
 
   cross:
     # Ubuntu alone used to be the whole gate, so anything platform-specific — a unix-only
@@ -75,18 +86,18 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
         with:
           components: clippy
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
   coverage:
     # The ratchet: line coverage may only go up. The floor lives in .coverage-floor; a
@@ -95,13 +106,13 @@ jobs:
     name: coverage ratchet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Install Linux GUI build dependencies
         run: |
@@ -113,7 +124,7 @@ jobs:
             libvulkan1 mesa-vulkan-drivers libxss-dev
 
       - name: Install cargo-tarpaulin
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
           tool: cargo-tarpaulin
 

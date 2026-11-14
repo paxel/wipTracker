@@ -1,0 +1,30 @@
+# Dependency updates: one grouped pull request per ecosystem and week. A release is
+# proposed only after it has been out for 14 days (cooldown), so early fixes are in;
+# security updates are not held back.
+#
+# Every third-party action is pinned to a full commit SHA with its version in a comment;
+# Dependabot moves the SHA and the comment together.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      githubactions:
+        patterns: ["*"]
+    # The Rust toolchain pin moves on purpose, together with rust-toolchain.toml,
+    # never by a weekly update.
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
