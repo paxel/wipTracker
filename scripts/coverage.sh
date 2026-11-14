@@ -49,11 +49,14 @@ write_badge() {
 # floor raised on the richer machine was unreachable on the poorer one. All are thin
 # best-effort adapters; their tests still run everywhere.
 #
+# lcov.info at the repo root is for SonarQube Cloud (sonar-project.properties); the
+# percentage below is read from the Stdout report as before.
+#
 # Tarpaulin's last line reads like "74.32% coverage, 1234/1660 lines covered".
 coverage=$(cd "$ROOT" && cargo tarpaulin --engine llvm --all-features --workspace \
   --exclude-files src/infrastructure/beeper.rs --exclude-files src/infrastructure/idle.rs \
   --exclude-files src/infrastructure/xdesk.rs --exclude-files src/infrastructure/screens.rs \
-  --skip-clean --out Stdout 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
+  --skip-clean --out Stdout --out Lcov --output-dir "$ROOT" 2>&1 | tee /dev/stderr | grep -oE '^[0-9]+\.[0-9]+% coverage' | cut -d% -f1)
 
 if [ -z "$coverage" ]; then
   echo "coverage: tarpaulin produced no percentage" >&2

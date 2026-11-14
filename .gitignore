@@ -1,1 +1,4 @@
 /target
+# SonarQube Cloud inputs: scripts/coverage.sh and the Sonar job write them.
+/lcov.info
+/build

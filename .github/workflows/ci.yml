@@ -130,3 +130,34 @@ jobs:
 
       - name: Enforce the floor
         run: scripts/coverage.sh --check
+
+  tools:
+    name: Tools (Python unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: OSV gate
+        working-directory: tool
+        run: python3 -m unittest test_osv_gate
+
+  # Known vulnerabilities in Cargo.lock fail every push. A notice that a crate is
+  # unmaintained is listed but does not fail; tool/osv_gate.py decides. Ignores live in
+  # osv-scanner.toml. The weekly Security run stays stricter.
+  osv-scanner:
+    name: Vulnerable dependencies (OSV-Scanner)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Exits 1 on any finding, unmaintained notices too; the next step decides from the
+      # results, and fails when there are none.
+      - name: osv-scanner
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --format=json
+            --output-file=osv-results.json
+            --recursive
+            ./
+      - name: No known vulnerability (unmaintained notices reported only)
+        run: python3 tool/osv_gate.py osv-results.json
