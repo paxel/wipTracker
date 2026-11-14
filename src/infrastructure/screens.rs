@@ -43,7 +43,13 @@ fn scaled(raw: &[Raw], divisor: f32) -> Vec<Rect> {
 ///
 /// Only macOS reports frames this way; the function is kept on every platform so its
 /// tests run where the tests run.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    all(not(target_os = "macos"), not(test)),
+    expect(
+        dead_code,
+        reason = "only macOS flips frames; the tests use it everywhere"
+    )
+)]
 fn flipped(frames: &[Raw]) -> Vec<Raw> {
     let Some(&(_, _, _, primary_height)) = frames.first() else {
         return Vec::new();
@@ -186,7 +192,10 @@ mod x11 {
 }
 
 #[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "EnumDisplayMonitors and its callback are the Win32 FFI"
+)]
 mod windows {
     use super::Raw;
     use windows_sys::Win32::Foundation::{LPARAM, RECT};

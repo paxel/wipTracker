@@ -5,7 +5,8 @@
 #   build-windows — zip with wiptracker.exe and the Start-menu shortcut script
 #   build-macos   — per-arch binary tar.gz (what Homebrew installs) plus one universal
 #                   unsigned WipTracker.app in a .dmg (what people download by hand)
-#   release       — GitHub Release, notes = the CHANGELOG section for the tag
+#   release       — GitHub Release, notes = the CHANGELOG section for the tag; every
+#                   file gets a build provenance attestation, plus a source SBOM
 #   channels      — Homebrew formula + Scoop manifest pushed to the tap/bucket
 #
 # One-time setup (repository secrets):
@@ -27,18 +28,83 @@ env:
   CARGO_TERM_COLOR: always
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
+# Least privilege: the job that writes the GitHub Release widens this itself.
+permissions:
+  contents: read
+
 jobs:
   gate:
     name: Gate (Linux, full)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: read # the code-scanning alert check below
     steps:
-      - uses: actions/checkout@v4
+      # The full history, so the code-scanning step finds the branches that hold the
+      # tagged commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
+          fetch-depth: 0
+      # Exits 1 on any finding, unmaintained notices too; the next step decides.
+      - name: osv-scanner
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --format=json
+            --output-file=osv-results.json
+            --recursive
+            ./
+      - name: No known vulnerability (unmaintained notices reported only)
+        run: python3 tool/osv_gate.py osv-results.json
+      # The release notes are this section; a release without one stops here, before
+      # anything is built.
+      - name: CHANGELOG.md has a section for this version
+        run: |
+          ver=${RELEASE_TAG#v}
+          awk -v ver="$ver" '
+            $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
+            grab && (/^## \[/ || /^---/) { exit }
+            grab && NF { found = 1 }
+            END { exit !found }
+          ' CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $ver" >&2; exit 1; }
+      # CodeQL analyses branches, not tags: every open CodeQL alert on a branch that
+      # holds this commit is listed, and one of severity high or critical stops the
+      # release. Scorecard's alerts are report-only and not counted. A branch CodeQL never
+      # analysed is skipped; none analysed at all stops it too.
+      - name: No open high or critical CodeQL alert
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          branches=$(git branch -r --contains "$sha" --format='%(refname:lstrip=3)' | grep -vx HEAD || true)
+          analysed=0
+          blocking=0
+          for b in $branches; do
+            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$b&state=open&tool_name=CodeQL&per_page=100" \
+              --jq '.[] | [(.rule.security_severity_level // "-"), .rule.severity, .rule.id, .most_recent_instance.location.path, .html_url] | @tsv' \
+              > "$RUNNER_TEMP/alerts.tsv" 2> "$RUNNER_TEMP/error.txt"; then
+              if grep -q 'no analysis found' "$RUNNER_TEMP/error.txt"; then
+                echo "$b: not analysed by CodeQL, skipped"
+                continue
+              fi
+              cat "$RUNNER_TEMP/error.txt" >&2
+              exit 1
+            fi
+            analysed=$((analysed + 1))
+            echo "Open CodeQL alerts on $b (security severity, severity, rule, file, link):"
+            cat "$RUNNER_TEMP/alerts.tsv"
+            n=$(awk -F'\t' '$1 == "high" || $1 == "critical" || $2 == "error"' "$RUNNER_TEMP/alerts.tsv" | wc -l)
+            echo "$n of them high or critical"
+            blocking=$((blocking + n))
+          done
+          [ "$analysed" -gt 0 ] || { echo "no CodeQL analysis on any branch that holds $sha" >&2; exit 1; }
+          [ "$blocking" -eq 0 ] || { echo "$blocking open high or critical CodeQL alerts" >&2; exit 1; }
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: System dependencies
         run: |
           sudo apt-get update
@@ -53,11 +119,11 @@ jobs:
           tag=${RELEASE_TAG#v}
           [ "$ver" = "$tag" ] || { echo "tag v$tag != crate version $ver" >&2; exit 1; }
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --all-features
       - name: Coverage ratchet
         run: |
-          cargo install cargo-tarpaulin --locked
+          cargo install cargo-tarpaulin --locked --version 0.37.6
           scripts/coverage.sh --check
       # The same packaging checks CI runs: a broken entry would otherwise only surface
       # once the .deb had installed it on someone's machine.
@@ -67,13 +133,13 @@ jobs:
   build-linux:
     name: Linux artifacts
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: System dependencies
         run: |
           sudo apt-get update
@@ -83,7 +149,7 @@ jobs:
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
             libxss-dev
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Tarball with the desktop files
         # The icon, the .desktop entry and the install script travel with the binary:
         # Wayland shows no icon without them, and Homebrew on Linux installs this tarball.
@@ -97,7 +163,7 @@ jobs:
           tar -C stage -czf "dist/wiptracker-${ver}-linux-x86_64.tar.gz" .
       - name: Debian package
         run: packaging/mkdeb.sh --no-build --version "${RELEASE_TAG#v}" --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
           path: dist/*
@@ -107,13 +173,13 @@ jobs:
     needs: gate
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Zip
         shell: pwsh
         run: |
@@ -124,7 +190,7 @@ jobs:
                                  LICENSE-MIT, `
                                  LICENSE-APACHE `
                            -DestinationPath "dist/wiptracker-$ver-windows-x86_64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: dist/*
@@ -134,17 +200,17 @@ jobs:
     needs: gate
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
       - name: Both Apple targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build release binaries
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
       - name: Per-architecture tarballs (Homebrew installs these)
         run: |
           ver=${RELEASE_TAG#v}
@@ -162,7 +228,7 @@ jobs:
             target/x86_64-apple-darwin/release/wiptracker
           packaging/mkapp.sh build/wiptracker "$ver" dist universal
           rm -rf dist/WipTracker.app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos
           path: dist/*
@@ -170,17 +236,36 @@ jobs:
   release:
     name: GitHub Release
     needs: [build-linux, build-windows, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write # signs the provenance attestations
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v4
+      # Before the artifacts land in the workspace, so the SBOM covers the source tree
+      # only: Cargo.lock, which is what the binaries contain.
+      - name: Source SBOM (CycloneDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: wiptracker-${{ env.RELEASE_TAG }}-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
+      - name: SBOM next to the artifacts
+        run: mv "wiptracker-${RELEASE_TAG}-source.cdx.json" dist/
+      # Signed provenance per file: `gh attestation verify <file> -R paxel/wipTracker`.
+      - name: Build provenance attestations
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
       - name: Release notes from the CHANGELOG section
         run: |
           ver=${RELEASE_TAG#v}
@@ -189,13 +274,13 @@ jobs:
             grab && (/^## \[/ || /^---/) { exit }
             grab { print }
           ' CHANGELOG.md > notes.md
-          [ -s notes.md ] || echo "Release $ver." > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no section for $ver" >&2; exit 1; }
       # softprops updates an existing release rather than failing on it: publishing from
       # the GitHub UI creates the tag, which starts this workflow, so the release usually
       # exists before the artifacts are built. The body always comes from CHANGELOG.md, so
       # the release notes and the file cannot drift apart.
       - name: Create or update the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: WipTracker ${{ env.RELEASE_TAG }}
@@ -206,12 +291,12 @@ jobs:
   channels:
     name: Homebrew tap + Scoop bucket
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true

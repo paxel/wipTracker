@@ -31,7 +31,7 @@ fn wanted_on(macos: bool, from_terminal: bool, args: &[String]) -> bool {
 /// Starts `exe` again with the same arguments plus [`FOREGROUND`], detached from the
 /// terminal. The caller exits once this returns.
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "pre_exec runs setsid between fork and exec")]
 pub fn detach(exe: &Path, args: &[String]) -> io::Result<()> {
     use std::os::unix::process::CommandExt as _;
     use std::process::{Command, Stdio};
