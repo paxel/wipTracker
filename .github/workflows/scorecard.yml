@@ -1,6 +1,7 @@
 # OpenSSF Scorecard: rates the repository's supply-chain practices (pinned actions,
-# token permissions, branch protection, …) and publishes the result. Report only: its
-# alerts land in code scanning, but the release gate counts CodeQL's alerts alone.
+# token permissions, branch protection, …) and publishes the result. Its alerts land in
+# code scanning, where the release gate and the weekly Security run count them like
+# CodeQL's: each one fails until it is fixed or accepted in code-scanning-ignores.toml.
 # The action requires: no top-level env or defaults, and only approved actions in this job.
 name: Scorecard
 

@@ -3,9 +3,10 @@
 //! actually applied — the layer the unit tests cannot see and where the real-world bugs
 //! (bar not on top, windows in the taskbar, the hint killing the menu) lived.
 //!
-//! They need a session to run in: X11, an EWMH window manager, and `xte` for input.
-//! Anywhere that is missing — CI runners, native Wayland — each test says so and passes
-//! vacuously. The tests share the one pointer and the one screen, so they run under a
+//! They need a session to run in: X11, an EWMH window manager, and `xte` for input. CI
+//! provides one with Xvfb and openbox. Anywhere a piece is missing the test fails with
+//! the reason, unless `WIPTRACKER_SKIP_DESKTOP_TESTS` is set: a test that passes without
+//! a desktop has tested nothing. The tests share the one pointer and the one screen, so they run under a
 //! lock, and the pointer is put back where it was found.
 
 #![cfg(target_os = "linux")]
@@ -226,8 +227,8 @@ impl Drop for App {
     }
 }
 
-/// The desk, the lock, and the spawned app — or `None` with the reason printed, which
-/// passes the test vacuously where there is no desktop to test against.
+/// The desk, the lock, and the spawned app — or `None` when the tests are skipped on
+/// purpose. A missing piece of the desktop fails the test with the reason.
 fn desktop() -> Option<(MutexGuard<'static, ()>, Desk, App)> {
     // The coverage script sets this: these tests only run where a desktop exists, so
     // letting them into the measurement would make the number differ between a
@@ -240,23 +241,20 @@ fn desktop() -> Option<(MutexGuard<'static, ()>, Desk, App)> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let Some(desk) = Desk::open() else {
-        eprintln!("skipping: no X11 session with an EWMH window manager");
-        return None;
+        panic!(
+            "no X11 session with an EWMH window manager (set WIPTRACKER_SKIP_DESKTOP_TESTS to skip)"
+        );
     };
     if !Command::new("xte")
         .arg("sleep 0")
         .status()
         .is_ok_and(|status| status.success())
     {
-        eprintln!("skipping: xte (xautomation) is not installed");
-        return None;
+        panic!("xte (xautomation) is not installed (set WIPTRACKER_SKIP_DESKTOP_TESTS to skip)");
     }
     let app = match App::spawn() {
         Ok(app) => app,
-        Err(error) => {
-            eprintln!("skipping: could not spawn the app: {error}");
-            return None;
-        }
+        Err(error) => panic!("could not spawn the app: {error}"),
     };
     Some((guard, desk, app))
 }
@@ -281,8 +279,8 @@ const PAST_HINT_DELAY: Duration = Duration::from_secs(3);
 /// Menu layout, mirrored from `ui/menu.rs`: frame margin, row height, separator height.
 /// The row centers computed from these are what the clicks aim at.
 const MENU_MARGIN: i32 = 8;
-const MENU_ROW: i32 = 26;
-const MENU_SEPARATOR: i32 = 6;
+const MENU_ROW: i32 = 25;
+const MENU_SEPARATOR: i32 = 12;
 
 /// The center y of `row` (counting items only) with `separators` above it.
 fn menu_row_y(row: i32, separators: i32) -> i32 {
@@ -350,12 +348,9 @@ fn the_taskbar_toggle_applies_while_running() {
     let bar = desk
         .wait_for(app.pid(), "WipTracker", PATIENCE)
         .expect("the bar window appears");
-    let (_, (x, y, _, height)) = open_menu(&desk, &app).expect("the burger opens the menu");
-    // "leave the taskbar" is the last row.
-    click_at(
-        x as i32 + 135,
-        y as i32 + height as i32 - MENU_ROW / 2 - MENU_MARGIN / 2,
-    );
+    let (_, (x, y, _, _)) = open_menu(&desk, &app).expect("the burger opens the menu");
+    // "leave the taskbar" is the seventeenth item, below three separators.
+    click_at(x as i32 + 135, y as i32 + menu_row_y(16, 3));
     assert!(
         desk.wait_for_state(bar, desk.skip_taskbar, true, PATIENCE),
         "the toggle takes the bar out of the taskbar without a restart"
@@ -377,7 +372,7 @@ fn closing_the_day_quits_the_app() {
         .expect("the end-day window opens");
     let (rx, ry, _, _) = desk.geometry(report).expect("end-day geometry");
     // "Close day" sits under the export button; day empty, so the layout is fixed.
-    click_at(rx as i32 + 38, ry as i32 + 170);
+    click_at(rx as i32 + 38, ry as i32 + 255);
     let until = Instant::now() + PATIENCE;
     let exited = loop {
         if let Ok(Some(_)) = app.child.try_wait() {

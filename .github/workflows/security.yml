@@ -1,5 +1,6 @@
-# Fails when a dependency in Cargo.lock has a known advisory (OSV database). Runs weekly
-# and on demand, because new advisories appear without any change in this repo. CI and
+# Fails when a dependency in Cargo.lock has a known advisory (OSV database), or when a
+# code-scanning alert is open that code-scanning-ignores.toml does not accept. Runs weekly
+# and on demand, because new advisories and alerts appear without any change in this repo. CI and
 # the release gate run the same scan on every push and tag, but there a notice that a
 # crate is unmaintained is only listed; here it fails too, so a new one is seen within a
 # week. An advisory wipTracker is not exposed to and no update removes is ignored in
@@ -26,3 +27,22 @@ jobs:
           scan-args: |-
             --recursive
             ./
+
+  code-scanning:
+    # Every open alert on the default branch, from every tool and of every severity: the
+    # same rule as the release gate, so a new finding shows within a week, not at the tag.
+    name: Open code-scanning alerts
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: No open code-scanning alert that is not accepted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$BRANCH&state=open&per_page=100" \
+            --jq '.[]' > "$RUNNER_TEMP/alerts.jsonl"
+          python3 tool/code_scanning_gate.py "$RUNNER_TEMP/alerts.jsonl" code-scanning-ignores.toml

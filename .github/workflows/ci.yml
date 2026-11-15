@@ -50,7 +50,8 @@ jobs:
             libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
             libvulkan1 mesa-vulkan-drivers \
-            desktop-file-utils libxss-dev
+            desktop-file-utils libxss-dev \
+            xvfb xauth openbox xautomation libxkbcommon-x11-0
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -70,8 +71,11 @@ jobs:
       - name: Test
         # The render tests need a Vulkan device; lavapipe from mesa-vulkan-drivers
         # provides a software one on the runner. The Linux jobs stay on ubuntu-24.04:
-        # lavapipe on ubuntu-26.04 crashes the render tests with SIGSEGV.
-        run: cargo test --locked --all-features
+        # lavapipe on ubuntu-26.04 crashes the render tests with SIGSEGV. The X11 desktop
+        # tests need a session: Xvfb with openbox as the EWMH window manager, and xte
+        # from xautomation for the pointer. Without one they fail. The screen is tall
+        # enough for the menu to open below the centred bar, where the tests click.
+        run: xvfb-run -a -s '-screen 0 1920x1600x24' sh -c 'openbox & sleep 2; cargo test --locked --all-features'
 
   cross:
     # Ubuntu alone used to be the whole gate, so anything platform-specific — a unix-only
@@ -137,9 +141,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: OSV gate
+      - name: OSV gate and code-scanning gate
         working-directory: tool
-        run: python3 -m unittest test_osv_gate
+        run: python3 -m unittest test_osv_gate test_code_scanning_gate
 
   # Known vulnerabilities in Cargo.lock fail every push. A notice that a crate is
   # unmaintained is listed but does not fail; tool/osv_gate.py decides. Ignores live in

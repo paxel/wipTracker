@@ -1,0 +1,21 @@
+# Accepted code-scanning findings. The release and the weekly Security run read this
+# (.github/workflows/, tool/code_scanning_gate.py) and fail on every open alert, from
+# any tool and of any severity, that is not listed here. Each entry names the tool and
+# the rule as GitHub reports them, says why the finding stays, and when the gate fails
+# again: that is the review. Then fix it, or move the date with a reason. Nothing is
+# dismissed in GitHub; the alerts stay open there.
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CodeReviewID"
+ignoreUntil = 2027-05-14
+reason = """Single maintainer: GitHub forbids approving one's own pull request, so no \
+merge can carry a second person's approval. Every change goes through a pull request \
+with green CI instead."""
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CIIBestPracticesID"
+ignoreUntil = 2027-05-14
+reason = """The OpenSSF Best Practices badge is a self-certification questionnaire; the \
+practices it asks for are checked by the gates themselves."""

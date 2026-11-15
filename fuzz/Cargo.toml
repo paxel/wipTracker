@@ -1,0 +1,33 @@
+# cargo-fuzz targets, run weekly by .github/workflows/fuzz.yml. A crate of its own,
+# outside the main workspace, so the release builds never depend on libFuzzer.
+[package]
+name = "wiptracker-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+redb = "2"
+tempfile = "3"
+wiptracker = { path = ".." }
+
+[[bin]]
+name = "parse_clock"
+path = "fuzz_targets/parse_clock.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_load"
+path = "fuzz_targets/store_load.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

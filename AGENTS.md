@@ -49,5 +49,8 @@ The decisions behind these are in `docs/adr/0001-security-hardening.md`.
   itself.
 - An advisory that cannot be fixed is ignored in `osv-scanner.toml` with the reason
   wipTracker is not exposed and an `ignoreUntil` date. Never ignore without both.
-- The release fails on a known vulnerability, on an open high or critical CodeQL alert,
-  and on a missing `CHANGELOG.md` section for the version.
+- A code-scanning alert that stays open is accepted in `code-scanning-ignores.toml` with
+  its tool, rule, reason and an `ignoreUntil` date. Never dismiss an alert in GitHub.
+- The release fails on a known vulnerability, on every open code-scanning alert (any
+  tool, any severity) that is not accepted, and on a missing `CHANGELOG.md` section for
+  the version. The weekly Security run fails on the same alerts.

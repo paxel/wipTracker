@@ -7,8 +7,13 @@ window and idle state, and no file from anybody else. The threat is the supply c
 the dependencies, the CI that builds the release, and the files Homebrew and Scoop hand
 to other people.
 
-**Scope.** The CI and the release supply chain, plus lints in the code. A threat model,
-input limits and fuzzing are out: there is no untrusted input to fuzz.
+**Scope.** The CI and the release supply chain, plus lints in the code. A threat model
+and input limits are out: there is no untrusted input.
+
+**Fuzzing.** Amended later on 2026-11-14: cargo-fuzz targets in `fuzz/` for the clock
+parser and for loading a damaged store file run weekly. The store file can be damaged,
+and a panic while loading it is exactly what the crate-root denies are meant to rule
+out; fuzzing is how that is checked.
 
 **Lints.** The crate roots deny panicking operations in shipped code (unwrap, expect,
 panic, todo, unimplemented, unreachable, indexing, string slicing, overflowing
@@ -29,11 +34,15 @@ bumps.
 
 **Analysis.** CodeQL for Rust and the workflows on every push, pull request and week.
 SonarQube Cloud analyses summer with the clippy report and coverage imported, report
-only. OpenSSF Scorecard rates the repository weekly, report only.
+only. OpenSSF Scorecard rates the repository weekly; its alerts count in the gates.
 
-**Release gate.** A tag is refused on a known vulnerability, on an open high or critical
-CodeQL alert on a branch that holds it (Scorecard's alerts do not count), and on a
-missing `CHANGELOG.md` section for the version.
+**Release gate.** A tag is refused on a known vulnerability, on any open code-scanning
+alert on a branch that holds it (every tool, every severity) that
+`code-scanning-ignores.toml` does not accept, and on a missing `CHANGELOG.md` section
+for the version. The weekly Security run fails on the same alerts. An accepted finding
+carries its tool, rule, reason and an `ignoreUntil` date, like the OSV ignores; nothing
+is dismissed in GitHub. Amended later on 2026-11-14: counting only high and critical
+CodeQL alerts let a release pass with Scorecard's findings open.
 
 **Provenance.** Every release file gets a GitHub build provenance attestation, checked
 with `gh attestation verify <file> -R paxel/wipTracker`, and the release carries a
