@@ -35,11 +35,11 @@ allow_attributes = "deny"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
-eframe = "0.35"
-egui = "0.35"
+eframe = "0.36"
+egui = "0.36"
 notify-rust = "4.18.0"
-redb = "2"
-rodio = { version = "0.20", default-features = false }
+redb = "4"
+rodio = { version = "0.23", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -51,7 +51,7 @@ winit = { version = "0.30", default-features = false }
 # Speaks the bits of EWMH winit has no API for — keeping our windows out of the
 # taskbar — and asks RandR where the monitors are. Already in the tree through winit, so
 # this costs no extra build.
-x11rb = { version = "0.13", features = ["randr"] }
+x11rb = { version = "0.14", features = ["randr"] }
 
 # `setsid`, which hands the terminal back when the bare binary is started from one, and
 # `NSScreen`, which says where the monitors are. The objc2 crates follow winit's own.
@@ -70,11 +70,11 @@ version = "3"
 
 [dev-dependencies]
 serde_json = "1"
-egui_kittest = { version = "0.35", features = ["wgpu", "eframe"] }
+egui_kittest = { version = "0.36", features = ["wgpu", "eframe"] }
 
 # The X11 desktop integration tests read window states straight off the server.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-x11rb = "0.13"
+x11rb = "0.14"
 
 [profile.release]
 strip = true
