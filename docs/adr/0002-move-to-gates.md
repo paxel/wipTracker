@@ -28,11 +28,11 @@ The price is that a new file in `tests/` has to be added to that list, in `ci.ym
 `AGENTS.md`. The four adapters whose coverage depends on the machine stay out of the
 measurement.
 
-**The floor went from 92.12 to 91.09, with the same tests.** Rust 1.100.0 counts a closure
+**The floor went from 92.12 to 91.05, with the same tests.** Rust 1.100.0 counts a closure
 on a line of its own, such as `.map_err(|error| StoreError::Read(error.to_string()))?`, as
 uncovered when it never ran; Rust 1.99.1 counted the line as covered with the statement
 around it. Measured in one container with the same tests: 92.28 % on 1.99.1, 91.19 % on
-1.100.0. The 33 lines that changed are error paths that were never run before either, 27 of
+1.100.0 (91.15 % on the CI runner). The 33 lines that changed are error paths that were never run before either, 27 of
 them in `redb_store.rs`. The new number is the truer one, and the floor is that measurement
 minus 0.1. Staying on 1.99.1 to keep the number was rejected.
 
