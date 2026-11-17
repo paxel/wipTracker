@@ -4,10 +4,15 @@
 
 [![CI](https://github.com/paxel/wipTracker/actions/workflows/ci.yml/badge.svg?branch=summer)](https://github.com/paxel/wipTracker/actions/workflows/ci.yml)
 [![Security](https://github.com/paxel/wipTracker/actions/workflows/security.yml/badge.svg?branch=summer)](https://github.com/paxel/wipTracker/actions/workflows/security.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpaxel%2FwipTracker%2Fsummer%2F.github%2Fbadges%2Fcoverage.json)](https://github.com/paxel/wipTracker/blob/summer/scripts/coverage.sh)
-[![panic-free](https://img.shields.io/badge/panic--free-linted-success)](https://github.com/paxel/wipTracker/blob/summer/src/lib.rs)
-[![Release](https://img.shields.io/github/v/release/paxel/wipTracker)](https://github.com/paxel/wipTracker/releases/latest)
+[![CodeQL](https://github.com/paxel/wipTracker/actions/workflows/codeql.yml/badge.svg?branch=summer)](https://github.com/paxel/wipTracker/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/paxel/wipTracker/badge)](https://scorecard.dev/viewer/?uri=github.com/paxel/wipTracker)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=paxel_wipTracker&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=paxel_wipTracker)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fpaxel%2FwipTracker%2Fsummer%2F.github%2Fbadges%2Fcoverage-rust.json)](coverage-floors.toml)
+[![Fuzz](https://github.com/paxel/wipTracker/actions/workflows/fuzz.yml/badge.svg?branch=summer)](https://github.com/paxel/wipTracker/actions/workflows/fuzz.yml)
+[![Release](https://img.shields.io/github/v/release/paxel/wipTracker)](https://github.com/paxel/wipTracker/releases)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE-MIT)
+[![panic-free](https://img.shields.io/badge/panic--free-linted-success)](Cargo.toml)
+[![unsafe](https://img.shields.io/badge/unsafe-denied-success)](Cargo.toml)
 
 A one-line, always-on-top bar that shows the task you are focused on right now.
 

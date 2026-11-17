@@ -22,7 +22,7 @@ arithmetic), `dbg!` and `#[allow]`. The two documented `unsafe` blocks carry
 
 **Workflows.** Every action pinned by commit SHA; every workflow read-only unless a job
 widens it; CI on every branch push and pull request with superseded runs cancelled.
-Rust is pinned exactly in `rust-toolchain.toml` (1.99.1, as in the Sanshain service and
+Rust is pinned exactly in `rust-toolchain.toml` (1.100.0, as in the Sanshain service and
 dedup-rs); a bump is a commit of its own.
 
 **Dependencies.** osv-scanner on every push, in the release gate and weekly; the gate

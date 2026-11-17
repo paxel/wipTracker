@@ -1,26 +1,5 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// Shipped code may not panic: no unwrap, expect or panic, no unreachable, no
-// indexing or slicing that can go out of bounds, no arithmetic that can overflow.
-// No `dbg!` either, and no `#[allow]`: a lint that must be silenced says so with an
-// `#[expect(…, reason = …)]`, which fails once the lint no longer fires.
-// Unit tests are exempt via `cfg(test)`; integration tests are separate crates.
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::unreachable,
-        clippy::indexing_slicing,
-        clippy::string_slice,
-        clippy::arithmetic_side_effects,
-        clippy::dbg_macro,
-        clippy::allow_attributes
-    )
-)]
 
 use wiptracker::app::{
     Backend, WAYLAND_NOTICE, WipTracker, backend_to_force, choose_backend, prefers_decorations,

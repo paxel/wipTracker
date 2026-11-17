@@ -1,12 +1,9 @@
-# Fails when a dependency in Cargo.lock has a known advisory (OSV database), or when a
-# code-scanning alert is open that code-scanning-ignores.toml does not accept. Runs weekly
-# and on demand, because new advisories and alerts appear without any change in this repo. CI and
-# the release gate run the same scan on every push and tag, but there a notice that a
-# crate is unmaintained is only listed; here it fails too, so a new one is seen within a
-# week. An advisory wipTracker is not exposed to and no update removes is ignored in
-# osv-scanner.toml, with the reason and a date when this run fails again for review.
 name: Security
 
+# Weekly, and by hand: the release gate without a version, strict. It fails on every open
+# code-scanning or secret-scanning alert that code-scanning-ignores.toml does not accept, on a
+# known vulnerability, on an unmaintained dependency and on a licence outside the allowlist,
+# and when an accepted finding's date has passed: that is the review.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -16,33 +13,12 @@ permissions:
   contents: read
 
 jobs:
-  osv-scanner:
-    name: Vulnerable dependencies (OSV-Scanner)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: osv-scanner
-        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
-        with:
-          scan-args: |-
-            --recursive
-            ./
-
-  code-scanning:
-    # Every open alert on the default branch, from every tool and of every severity: the
-    # same rule as the release gate, so a new finding shows within a week, not at the tag.
-    name: Open code-scanning alerts
-    runs-on: ubuntu-24.04
+  gate:
+    uses: paxel/gates/.github/workflows/release-gate.yml@ba23cabf3ca13ea19f2100ba319869768209a7ce # v1.1.2
     permissions:
       contents: read
       security-events: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: No open code-scanning alert that is not accepted
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$BRANCH&state=open&per_page=100" \
-            --jq '.[]' > "$RUNNER_TEMP/alerts.jsonl"
-          python3 tool/code_scanning_gate.py "$RUNNER_TEMP/alerts.jsonl" code-scanning-ignores.toml
+    with:
+      strict: true
+    secrets:
+      alerts-token: ${{ secrets.GATES_ALERTS_TOKEN }}

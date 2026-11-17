@@ -17,11 +17,13 @@ a release with the fix is out.
 
 ## What is already checked
 
-Every push and pull request runs CodeQL and an OSV-Scanner dependency check, and
-SonarQube Cloud and OpenSSF Scorecard analyse the main branch. A release fails on a
-known vulnerability in a dependency or on any open code-scanning alert that is not
-accepted with a reason and a review date in `code-scanning-ignores.toml`. Every
-release file carries a build provenance attestation, and the release a source SBOM.
+The checks are the shared ones of [paxel/gates](https://github.com/paxel/gates). Every
+pull request runs CodeQL, an OSV-Scanner check of the dependencies and their licences, and
+SonarQube Cloud; OpenSSF Scorecard analyses the main branch. A release, and a weekly run,
+fail on a known vulnerability in a dependency and on any open code-scanning alert, secret
+alert or SonarQube Cloud finding that is not accepted with a reason and a review date in
+`code-scanning-ignores.toml`. Every release file carries a build provenance attestation,
+and the release a source SBOM.
 The attestation is also attached to the release as `wiptracker-<tag>-provenance.sigstore.json`
 for checks without the GitHub API:
 
@@ -31,4 +33,5 @@ gh attestation verify <file> -R paxel/wipTracker --bundle wiptracker-<tag>-prove
 ```
 
 The decisions behind this are in
-[docs/adr/0001-security-hardening.md](docs/adr/0001-security-hardening.md).
+[docs/adr/0001-security-hardening.md](docs/adr/0001-security-hardening.md) and
+[docs/adr/0002-move-to-gates.md](docs/adr/0002-move-to-gates.md).

@@ -1,16 +1,23 @@
 # Release on tag: `git tag v0.1.0 && git push --tags` produces everything.
 #
-#   gate          — the full Linux gate once more (fmt, clippy, all tests)
-#   build-linux   — tar.gz (binary, icon, .desktop, install script) and a .deb
-#   build-windows — zip with wiptracker.exe and the Start-menu shortcut script
-#   build-macos   — per-arch binary tar.gz (what Homebrew installs) plus one universal
+#   gate          - paxel/gates release-gate.yml: no open alert or SonarQube Cloud finding
+#                   that is not accepted, no known vulnerability, no licence outside the
+#                   allowlist, and a CHANGELOG section for the version
+#   test          - tag matches the crate version, then format, clippy, every test under
+#                   Xvfb and the packaging checks on the tagged commit
+#   build-linux   - tar.gz (binary, icon, .desktop, install script) and a .deb
+#   build-windows - zip with wiptracker.exe and the Start-menu shortcut script
+#   build-macos   - per-arch binary tar.gz (what Homebrew installs) plus one universal
 #                   unsigned WipTracker.app in a .dmg (what people download by hand)
-#   release       — GitHub Release, notes = the CHANGELOG section for the tag; every
-#                   file gets a build provenance attestation, plus a source SBOM
-#   channels      — Homebrew formula + Scoop manifest pushed to the tap/bucket
+#   provenance    - paxel/gates provenance.yml: a CycloneDX SBOM of the source, signed build
+#                   provenance for every file and its Sigstore bundle as a file of its own
+#   release       - GitHub Release, notes = the CHANGELOG section for the tag, with every
+#                   file of the jobs before
+#   channels      - Homebrew formula + Scoop manifest pushed to the tap/bucket
 #
 # One-time setup (repository secrets):
-#   CHANNEL_PAT — PAT with push access to paxel/homebrew-tap and paxel/scoop-bucket
+#   CHANNEL_PAT        - PAT with push access to paxel/homebrew-tap and paxel/scoop-bucket
+#   GATES_ALERTS_TOKEN - read access to the repository's alerts, for the release gate
 name: Release
 
 on:
@@ -33,70 +40,37 @@ permissions:
   contents: read
 
 jobs:
-  gate:
-    name: Gate (Linux, full)
+  version:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: version
+    uses: paxel/gates/.github/workflows/release-gate.yml@ba23cabf3ca13ea19f2100ba319869768209a7ce # v1.1.2
     permissions:
       contents: read
-      security-events: read # the code-scanning alert check below
+      security-events: read
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets:
+      alerts-token: ${{ secrets.GATES_ALERTS_TOKEN }}
+
+  # The shared gate runs no tests. A tag can sit on any commit, so the tagged one is tested
+  # here once more before anything is built from it (docs/adr/0002-move-to-gates.md).
+  test:
+    name: Tests on the tagged commit
+    runs-on: ubuntu-24.04
     steps:
-      # The full history, so the code-scanning step finds the branches that hold the
-      # tagged commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 0
-      # Exits 1 on any finding, unmaintained notices too; the next step decides.
-      - name: osv-scanner
-        continue-on-error: true
-        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
-        with:
-          scan-args: |-
-            --format=json
-            --output-file=osv-results.json
-            --recursive
-            ./
-      - name: No known vulnerability (unmaintained notices reported only)
-        run: python3 tool/osv_gate.py osv-results.json
-      # The release notes are this section; a release without one stops here, before
-      # anything is built.
-      - name: CHANGELOG.md has a section for this version
-        run: |
-          ver=${RELEASE_TAG#v}
-          awk -v ver="$ver" '
-            $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
-            grab && (/^## \[/ || /^---/) { exit }
-            grab && NF { found = 1 }
-            END { exit !found }
-          ' CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $ver" >&2; exit 1; }
-      # Code scanning analyses branches, not tags: every open alert on a branch that holds
-      # this commit counts, from every tool (CodeQL, Scorecard) and of every severity.
-      # tool/code_scanning_gate.py fails on each one that code-scanning-ignores.toml does
-      # not accept with a reason and a date. A branch never analysed is skipped; none
-      # analysed at all stops the release too.
-      - name: No open code-scanning alert that is not accepted
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sha=$(git rev-parse HEAD)
-          branches=$(git branch -r --contains "$sha" --format='%(refname:lstrip=3)' | grep -vx HEAD || true)
-          analysed=0
-          : > "$RUNNER_TEMP/alerts.jsonl"
-          for b in $branches; do
-            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?ref=refs/heads/$b&state=open&per_page=100" \
-              --jq '.[]' >> "$RUNNER_TEMP/alerts.jsonl" 2> "$RUNNER_TEMP/error.txt"; then
-              if grep -q 'no analysis found' "$RUNNER_TEMP/error.txt"; then
-                echo "$b: not analysed, skipped"
-                continue
-              fi
-              cat "$RUNNER_TEMP/error.txt" >&2
-              exit 1
-            fi
-            analysed=$((analysed + 1))
-          done
-          [ "$analysed" -gt 0 ] || { echo "no code-scanning analysis on any branch that holds $sha" >&2; exit 1; }
-          python3 tool/code_scanning_gate.py "$RUNNER_TEMP/alerts.jsonl" code-scanning-ignores.toml
-      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+          persist-credentials: false
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate commits.
+      - uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -115,13 +89,17 @@ jobs:
           tag=${RELEASE_TAG#v}
           [ "$ver" = "$tag" ] || { echo "tag v$tag != crate version $ver" >&2; exit 1; }
       - run: cargo fmt --check
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      # The two clippy runs of the shared Rust gate: shipped code under the whole lint set,
+      # tests with the lints allowed that are how a test fails.
+      - name: Clippy on shipped code
+        run: cargo clippy --locked --all-features -- -D warnings
+      - name: Clippy on tests
+        run: >-
+          cargo clippy --locked --tests --benches --examples --all-features -- -D warnings
+          -A clippy::unwrap_used -A clippy::expect_used -A clippy::panic -A clippy::indexing_slicing
+          -A clippy::string_slice -A clippy::arithmetic_side_effects -A clippy::unreachable
       # Under Xvfb with openbox, as in CI: the X11 desktop tests fail without a session.
-      - run: xvfb-run -a -s '-screen 0 1920x1600x24' sh -c 'openbox & sleep 2; cargo test --locked --all-features'
-      - name: Coverage ratchet
-        run: |
-          cargo install cargo-tarpaulin --locked --version 0.37.6
-          scripts/coverage.sh --check
+      - run: scripts/with-desktop.sh cargo test --locked --all-features
       # The same packaging checks CI runs: a broken entry would otherwise only surface
       # once the .deb had installed it on someone's machine.
       - run: desktop-file-validate packaging/wiptracker.desktop
@@ -129,13 +107,13 @@ jobs:
 
   build-linux:
     name: Linux artifacts
-    needs: gate
+    needs: [gate, test]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+      - uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: System dependencies
         run: |
@@ -162,18 +140,18 @@ jobs:
         run: packaging/mkdeb.sh --no-build --version "${RELEASE_TAG#v}" --out dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: linux
+          name: dist-linux
           path: dist/*
 
   build-windows:
     name: Windows artifacts
-    needs: gate
+    needs: [gate, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+      - uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build release binary
         run: cargo build --locked --release
@@ -189,18 +167,18 @@ jobs:
                            -DestinationPath "dist/wiptracker-$ver-windows-x86_64.zip"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows
+          name: dist-windows
           path: dist/*
 
   build-macos:
     name: macOS artifacts
-    needs: gate
+    needs: [gate, test]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+      - uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
       - name: Both Apple targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -227,51 +205,39 @@ jobs:
           rm -rf dist/WipTracker.app
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: macos
+          name: dist-macos
           path: dist/*
+
+  provenance:
+    needs: [build-linux, build-windows, build-macos]
+    uses: paxel/gates/.github/workflows/provenance.yml@ba23cabf3ca13ea19f2100ba319869768209a7ce # v1.1.2
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      name: wiptracker
+      tag: ${{ github.event.inputs.tag || github.ref_name }}
+      artifacts: dist-*
 
   release:
     name: GitHub Release
-    needs: [build-linux, build-windows, build-macos]
+    needs: provenance
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      id-token: write # signs the provenance attestations
-      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.RELEASE_TAG }}
-      # Before the artifacts land in the workspace, so the SBOM covers the source tree
-      # only: Cargo.lock, which is what the binaries contain.
-      - name: Source SBOM (CycloneDX)
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          path: .
-          format: cyclonedx-json
-          output-file: wiptracker-${{ env.RELEASE_TAG }}-source.cdx.json
-          upload-artifact: false
-          upload-release-assets: false
+          persist-credentials: false
+      # Every file of the build jobs, with the SBOM and the Sigstore bundle beside them:
+      # `gh attestation verify <file> -R paxel/wipTracker` checks a download, with
+      # `--bundle <the sigstore file>` offline.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          name: release-files
           path: dist
-          merge-multiple: true
-      - name: SBOM next to the artifacts
-        run: mv "wiptracker-${RELEASE_TAG}-source.cdx.json" dist/
-      # Signed provenance per file: `gh attestation verify <file> -R paxel/wipTracker`.
-      - name: Build provenance attestations
-        id: attest
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: dist/*
-      # The same signed provenance as a release file, so a download can be checked offline
-      # (`gh attestation verify <file> -R paxel/wipTracker --bundle <this file>`), and
-      # Scorecard's Signed-Releases check finds it. Copied after the attestation, so it is
-      # not a subject of itself.
-      - name: Sigstore bundle next to the artifacts
-        env:
-          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
-        run: cp "$BUNDLE" "dist/wiptracker-${RELEASE_TAG}-provenance.sigstore.json"
       - name: Release notes from the CHANGELOG section
         run: |
           ver=${RELEASE_TAG#v}
@@ -304,6 +270,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: dist-*
           path: dist
           merge-multiple: true
       - name: Render formula and manifest from the templates
