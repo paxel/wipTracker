@@ -1,0 +1,24 @@
+# The coverage ratchet (paxel/gates coverage_ratchet.py): one part per measured package. CI
+# writes coverage/rust.lcov and fails below the floor. After a rise, run the two commands
+# AGENTS.md names; the ratchet raises the floor to the measured value minus 0.1 and writes
+# .github/badges/coverage-rust.json. Commit both with the change that earned them.
+#
+# The X11 desktop tests (tests/x11_desktop.rs) sit the measurement out: they only run where a
+# session exists, and the floor must mean the same on a workstation and on the CI runner. So
+# the measurement names its test targets (ci.yml, coverage); a new file in tests/ is added
+# there.
+#
+# The beeper, the idle probe, the X desktop adapter and the screen geometry adapter are left
+# out of the measurement, not of the tests: their line coverage depends on whether the machine
+# has an audio device and an X server. All four are thin best-effort adapters.
+
+[[parts]]
+name = "rust"
+lcov = "coverage/rust.lcov"
+floor = 91.09
+exclude = [
+  "src/infrastructure/beeper.rs",
+  "src/infrastructure/idle.rs",
+  "src/infrastructure/xdesk.rs",
+  "src/infrastructure/screens.rs",
+]

@@ -1,6 +1,3 @@
 /target
-# SonarQube Cloud inputs: scripts/coverage.sh and the Sonar job write them.
-/lcov.info
-/build
-# Python bytecode from running the tool/ tests.
-__pycache__/
+# Coverage reports of the local runs and of CI; the floors and the badge are committed.
+/coverage
