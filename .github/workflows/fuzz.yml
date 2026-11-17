@@ -1,12 +1,12 @@
-# Fuzzes the inputs wipTracker parses: the clock times a person types, and the store file
-# read at start, damaged in every way libFuzzer finds. Weekly and on demand; a crash fails
-# the run and the crashing input is uploaded. The targets are in fuzz/.
-#
-# cargo-fuzz needs nightly compiler flags. The pinned stable toolchain gets them through
-# RUSTC_BOOTSTRAP=1 instead of a second, nightly pin: the code is fuzzed with the
-# compiler that builds the release, and nightly-2026-11-01 does not compile zbus.
 name: Fuzz
 
+# The fuzz targets in fuzz/ (cargo-fuzz, libFuzzer), weekly and by hand, from paxel/gates: the
+# clock times a person types, and the store file read at start, damaged in every way libFuzzer
+# finds. A crash fails the job; `cargo fuzz run <target> <file>` replays its input.
+#
+# cargo-fuzz needs nightly compiler flags. The shared workflow gives them to the pinned stable
+# toolchain through RUSTC_BOOTSTRAP=1, so the code is fuzzed with the compiler that builds the
+# release.
 on:
   schedule:
     - cron: "29 5 * * 1"
@@ -17,44 +17,13 @@ permissions:
 
 jobs:
   fuzz:
-    name: Fuzz (${{ matrix.target }})
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [parse_clock, store_load]
-    env:
-      RUSTC_BOOTSTRAP: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
-
-      - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: fuzz
-
-      - name: Install Linux GUI build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libasound2-dev pkg-config \
-            libgtk-3-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
-            libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libxss-dev
-
-      - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked --version 0.13.2
-
-      - name: Fuzz for five minutes
-        working-directory: fuzz
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=300
-
-      - name: Upload the crashing input
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fuzz-crash-${{ matrix.target }}
-          path: fuzz/artifacts/
+    uses: paxel/gates/.github/workflows/fuzz.yml@ba23cabf3ca13ea19f2100ba319869768209a7ce # v1.1.2
+    with:
+      stack: rust
+      apt-packages: >-
+        libasound2-dev pkg-config libgtk-3-dev libxkbcommon-dev libwayland-dev
+        libxcb-shape0-dev libxcb-xfixes0-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+        libxss-dev
+      targets: |
+        parse_clock
+        store_load
