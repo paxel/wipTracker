@@ -9,6 +9,30 @@ readme = "README.md"
 keywords = ["productivity", "time-tracking", "egui", "desktop"]
 categories = ["command-line-utilities"]
 
+# The lint set of the standard (paxel/gates, configs/rust/lints.toml), for every target.
+[lints.rust]
+# Denied rather than forbidden: two platform modules need a single documented `unsafe` each
+# and say so with an `#[expect(unsafe_code, reason = "...")]` of their own.
+unsafe_code = "deny"
+
+[lints.clippy]
+# Shipped code may not panic: no unwrap, expect or panic, no unreachable, no indexing or
+# slicing that can go out of bounds, no arithmetic that can overflow. CI runs clippy on the
+# tests with these seven allowed (paxel/gates, actions/rust): they are how a test fails.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+arithmetic_side_effects = "deny"
+todo = "deny"
+unimplemented = "deny"
+# No `dbg!`, and no `#[allow]`: a lint that must be silenced says so with an
+# `#[expect(..., reason = "...")]`, which fails once the lint no longer fires.
+dbg_macro = "deny"
+allow_attributes = "deny"
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 eframe = "0.35"

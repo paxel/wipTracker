@@ -1,27 +1,4 @@
-// Denied rather than forbidden: two platform modules need a single documented `unsafe` each
-// and say so with an `expect` of their own. Everything else stays safe.
-#![deny(unsafe_code)]
-// Shipped code may not panic: no unwrap, expect or panic, no unreachable, no
-// indexing or slicing that can go out of bounds, no arithmetic that can overflow.
-// No `dbg!` either, and no `#[allow]`: a lint that must be silenced says so with an
-// `#[expect(…, reason = …)]`, which fails once the lint no longer fires.
-// Unit tests are exempt via `cfg(test)`; integration tests are separate crates.
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::unreachable,
-        clippy::indexing_slicing,
-        clippy::string_slice,
-        clippy::arithmetic_side_effects,
-        clippy::dbg_macro,
-        clippy::allow_attributes
-    )
-)]
+// The lint set, the no-panic rules and the unsafe rule among them, is in Cargo.toml under [lints].
 
 pub mod app;
 pub mod domain;
