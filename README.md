@@ -154,7 +154,7 @@ that task has been worked on that long today — and the clock on the bar turns 
 rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
 default applies to every task created afterwards.
 
-**Let the pause start itself.** _auto-pause when idle_, in the same window, is off until
+**Let the pause start itself.** _auto-pause when idle_, on the same page, is off until
 you choose a span. Chosen, WipTracker switches to `pause` once keyboard and mouse have
 been quiet that long, and takes the quiet minutes off the task — the pause counts from
 when you stopped, not from when it was noticed. Off means your input is never watched.
@@ -165,7 +165,7 @@ the bar clock red for the rest of the day, outranking the amber, and opens a sma
 asking whether to end the day: _End day_ stamps the day, saves and quits, _Not yet_ asks
 again a quarter of an hour later. Today's report shows the count behind it.
 
-**Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
+**Clean up.** Menu → _groom_ lists every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.
 
 **Look at today, and end the day.** Menu → _today_ shows when the day started, what you
@@ -175,7 +175,7 @@ stamps the day as finished — WipTracker saves and quits, because a clock left 
 overnight would credit tomorrow's hours to today. Open tasks stay on the stack and come
 back when you start it again.
 
-**Ask to be reminded of the pause.** _pause reminder at_, in the timers window, takes a
+**Ask to be reminded of the pause.** _pause reminder at_, on the timers page, takes a
 clock time such as `12:30`. At that time, once a day, a small window asks whether it is
 time for a pause: _Pause now_ starts it from that moment, _Not now_ asks again a quarter
 of an hour later until the pause is running. A pause already running then is taken as the
@@ -189,7 +189,7 @@ before you press _End there_: the day of the cut ends at that moment and is clos
 in between that held nothing else disappear, and the task keeps running from now.
 WipTracker offers this by itself on the first click or keystroke after a task ran through
 midnight, once; _Not now_ puts it away. A start on a new day offers nothing: the hours
-WipTracker was closed were never counted. The same window takes a forgotten pause off the
+WipTracker was closed were never counted. The same page takes a forgotten pause off the
 same day.
 
 **Look back.** Menu → _week_ shows a grid: one row per task, one column per weekday, plus

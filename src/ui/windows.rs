@@ -347,7 +347,13 @@ pub fn show_all(
             },
         );
         open.placing = placing;
-        open.tab = (still_open && kept).then_some(tab);
+        let next = (still_open && kept).then_some(tab);
+        if next != open.tab {
+            // "copied to clipboard" belongs to the visit of a page, not to the page.
+            open.end_day_copied = false;
+            open.week_copied = false;
+        }
+        open.tab = next;
     }
     if open.end_earlier_offered {
         let mut placing = std::mem::take(&mut open.placing);
