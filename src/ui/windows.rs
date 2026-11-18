@@ -397,7 +397,7 @@ fn stack(
                         let current = *id == focused;
                         let emphasis = theme::stack_text(&palette, depth, rows.len());
                         let mut text = RichText::new(if current {
-                            format!("● {name}")
+                            format!("• {name}")
                         } else {
                             name.clone()
                         })
@@ -560,11 +560,13 @@ fn timer(ctx: &Context, open: &mut OpenWindows, tracker: &mut Tracker) -> bool {
                 if editing == Some(TimerTarget::PauseReminder) && *id == TimerTarget::PauseReminder
                 {
                     ui.horizontal(|ui| {
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut typed)
-                                .hint_text("HH:MM")
-                                .desired_width(70.0),
-                        );
+                        let response = ui
+                            .add(
+                                egui::TextEdit::singleline(&mut typed)
+                                    .hint_text("HH:MM")
+                                    .desired_width(70.0),
+                            )
+                            .accessible_name("pause reminder time");
                         if !typed_focused {
                             response.request_focus();
                             typed_focused = true;
@@ -917,13 +919,15 @@ fn end_earlier(
                         egui::TextEdit::singleline(&mut date)
                             .hint_text("YYYY-MM-DD")
                             .desired_width(110.0),
-                    );
+                    )
+                    .accessible_name("day");
                     ui.label(RichText::new("time").color(palette.text_dim));
                     ui.add(
                         egui::TextEdit::singleline(&mut time)
                             .hint_text("HH:MM")
                             .desired_width(70.0),
-                    );
+                    )
+                    .accessible_name("time");
                 });
                 NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()
             } else {
@@ -933,7 +937,8 @@ fn end_earlier(
                         egui::TextEdit::singleline(&mut time)
                             .hint_text("HH:MM")
                             .desired_width(70.0),
-                    );
+                    )
+                    .accessible_name("time");
                 });
                 Some(now.date_naive())
             };
@@ -1108,11 +1113,13 @@ fn week(
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("jump to date").color(palette.text_dim));
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut typed)
-                        .hint_text("YYYY-MM-DD")
-                        .desired_width(110.0),
-                );
+                let response = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut typed)
+                            .hint_text("YYYY-MM-DD")
+                            .desired_width(110.0),
+                    )
+                    .accessible_name("jump to date");
                 let submitted =
                     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let picked = NaiveDate::parse_from_str(typed.trim(), "%Y-%m-%d");

@@ -875,7 +875,7 @@ impl WipTracker {
             .background_color(theme::current().field)
             .desired_width(theme::LABEL_WIDTH)
             .show(ui);
-        let response = output.response;
+        let response = egui::Response::clone(&output.response).accessible_name("task name");
         if !rename.focus_requested {
             response.request_focus();
             // Select the whole placeholder, so the first keystroke replaces it.
