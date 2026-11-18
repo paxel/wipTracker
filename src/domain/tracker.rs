@@ -1272,6 +1272,24 @@ mod tests {
         assert!(tracker.day_over(at(1, 11).date_naive()));
     }
 
+    /// A history written by 1.4.0 carries the mute flag of the repeating alarm on each
+    /// day. The flag is gone; the day still loads.
+    #[test]
+    fn a_day_record_with_the_old_mute_flag_still_loads() {
+        use crate::domain::day::DayRecord;
+
+        let mut day = DayRecord::default();
+        day.credit(1, hours(2), at(1, 9), at(1, 11));
+        let mut value = serde_json::to_value(&day).expect("encode");
+        value
+            .as_object_mut()
+            .expect("an object")
+            .insert("nag_muted".to_owned(), serde_json::Value::Bool(true));
+
+        let loaded: DayRecord = serde_json::from_value(value).expect("decode");
+        assert_eq!(loaded.duration_of(1), hours(2));
+    }
+
     /// "Not yet" asks again a quarter of an hour later, without a second alarm, and not
     /// while the pause is running.
     #[test]
