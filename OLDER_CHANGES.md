@@ -2,6 +2,15 @@
 
 Released versions before the one in [CHANGELOG.md](CHANGELOG.md).
 
+## [1.4.0] - 2026-11-18
+
+### Changed
+
+- The state file moves to a newer database format: the first start converts it and keeps
+  the file from before beside it as `wiptracker.redb.v2`. WipTracker 1.3.1 and older
+  cannot open the converted file, only that copy
+  ([wip-1023](https://github.com/paxel/wipTracker/issues/45)).
+
 ## [1.3.1] - 2026-11-17
 
 ### Security
