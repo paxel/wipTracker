@@ -54,6 +54,9 @@ pub struct Tracker {
     active_since: DateTime<Local>,
     /// When the focused task became the focused task: the start of its focus span.
     focused_since: DateTime<Local>,
+    /// Since when this run of the app has been counting: its start, or the moment a
+    /// short gap before it was taken up from. Not stored.
+    counting_since: DateTime<Local>,
 }
 
 impl Tracker {
@@ -74,6 +77,7 @@ impl Tracker {
             reminder_snoozed_until: None,
             active_since: now,
             focused_since: now,
+            counting_since: now,
         }
     }
 
@@ -119,6 +123,7 @@ impl Tracker {
             reminder_snoozed_until: None,
             active_since: resume_from,
             focused_since: snapshot.focused_since.unwrap_or(resume_from).min(now),
+            counting_since: resume_from,
         };
         tracker
             .tasks
@@ -622,10 +627,15 @@ impl Tracker {
         self.focused_since
     }
 
-    /// Whether the focused task's span began on an earlier day than `now`: the task ran
-    /// through midnight, which is what ending earlier is usually for.
+    /// Whether the focused task ran through midnight and was credited for it, which is
+    /// what ending earlier is usually for: its span began on an earlier day than `now`,
+    /// and so did this run of the app. A start on a new day finds the old span too, but
+    /// the night in between was never counted, so there is nothing to take off.
     pub fn span_crossed_midnight(&self, now: DateTime<Local>) -> bool {
-        self.focused_id() != PAUSE_ID && self.focused_since.date_naive() < now.date_naive()
+        let today = now.date_naive();
+        self.focused_id() != PAUSE_ID
+            && self.focused_since.date_naive() < today
+            && self.counting_since.date_naive() < today
     }
 
     /// What ending the focus span at `cut` would take off the focused task, day by day,
@@ -1501,6 +1511,34 @@ mod tests {
         let snapshot = tracker.snapshot(true, None, None);
         let restored = Tracker::from_snapshot(&snapshot, at(1, 14));
         assert_eq!(restored.focused_since(), at(1, 13));
+    }
+
+    /// The app was closed in the evening with a task focused and started again the next
+    /// morning: the span is yesterday's, but the night was never counted, so there is
+    /// nothing to offer.
+    #[test]
+    fn a_start_on_the_next_day_is_not_a_span_through_midnight() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 17));
+        let stored = tracker.snapshot(true, None, None);
+
+        let mut restored = Tracker::from_snapshot(&stored, at(2, 9));
+        assert_eq!(restored.focused_id(), task);
+        assert_eq!(
+            restored.focused_since(),
+            at(1, 9),
+            "the span is yesterday's"
+        );
+        assert!(!restored.span_crossed_midnight(at(2, 9)));
+        assert_eq!(
+            restored.duration_on(task, at(2, 9).date_naive()),
+            Duration::ZERO
+        );
+
+        // Left running from there, it does run through the next midnight.
+        restored.accrue(at(3, 9));
+        assert!(restored.span_crossed_midnight(at(3, 9)));
     }
 
     /// A machine that failed to shut down: the task ran from Monday evening to Tuesday

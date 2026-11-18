@@ -188,7 +188,8 @@ the task has been focused, asks when you really stopped, and tells what it would
 before you press _End there_: the day of the cut ends at that moment and is closed, days
 in between that held nothing else disappear, and the task keeps running from now.
 WipTracker offers this by itself on the first click or keystroke after a task ran through
-midnight, once; _Not now_ puts it away. The same window takes a forgotten pause off the
+midnight, once; _Not now_ puts it away. A start on a new day offers nothing: the hours
+WipTracker was closed were never counted. The same window takes a forgotten pause off the
 same day.
 
 **Look back.** Menu → _week_ shows a grid: one row per task, one column per weekday, plus
