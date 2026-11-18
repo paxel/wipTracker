@@ -151,10 +151,10 @@ pub fn launcher_offer(ctx: &Context, open: &mut OpenWindows) -> LauncherChoice {
             );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Add to the menu").clicked() {
+                if widgets::action_button(ui, "Add to the menu", true).clicked() {
                     choice = LauncherChoice::Install;
                 }
-                if ui.button("Don't ask again").clicked() {
+                if widgets::action_button(ui, "Don't ask again", false).clicked() {
                     choice = LauncherChoice::Dismiss;
                 }
             });
@@ -826,7 +826,7 @@ fn groom(
         ui.add_space(8.0);
         let count = selection.len();
         ui.add_enabled_ui(count > 0, |ui| {
-            if ui.button(format!("Finish selected ({count})")).clicked() {
+            if widgets::action_button(ui, &format!("Finish selected ({count})"), true).clicked() {
                 finish_now = true;
             }
         });
