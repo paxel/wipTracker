@@ -38,7 +38,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 eframe = "0.36"
 egui = "0.36"
 notify-rust = "4.18.0"
-redb = "2"
+redb = "4"
+# Only to convert a state file an older wipTracker wrote: redb 3 and later refuse the
+# format redb 2 wrote by default, and `Database::upgrade` of redb 2.6 is the one way across.
+redb2 = { package = "redb", version = "2.6" }
 rodio = { version = "0.23", default-features = false, features = ["playback"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -15,7 +15,7 @@
 [[parts]]
 name = "rust"
 lcov = "coverage/rust.lcov"
-floor = 91.05
+floor = 91.19
 exclude = [
   "src/infrastructure/beeper.rs",
   "src/infrastructure/idle.rs",

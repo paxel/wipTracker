@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use redb::{Database, ReadableTable as _, TableDefinition};
+use redb::{Database, DatabaseError, ReadableDatabase as _, ReadableTable as _, TableDefinition};
 
 use crate::domain::day::DayRecord;
 use crate::domain::ports::{Snapshot, Store, StoreError};
@@ -40,13 +40,22 @@ pub struct RedbStore {
 
 impl RedbStore {
     /// Opens, and if necessary creates, the database at `path`.
+    ///
+    /// A file written by wipTracker 1.3 or older is in the format of redb 2 and is
+    /// converted first; see [`convert_old_format`].
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| StoreError::Open(error.to_string()))?;
         }
-        let database =
-            Database::create(path).map_err(|error| StoreError::Open(error.to_string()))?;
+        let database = match Database::create(path) {
+            Err(DatabaseError::UpgradeRequired(_)) => {
+                convert_old_format(path)?;
+                Database::create(path)
+            }
+            other => other,
+        }
+        .map_err(|error| StoreError::Open(error.to_string()))?;
         Ok(Self { database })
     }
 
@@ -266,6 +275,39 @@ impl Store for RedbStore {
     }
 }
 
+/// What is appended to the name of the state file for the copy kept from before the
+/// conversion.
+const OLD_FORMAT_SUFFIX: &str = "v2";
+
+/// Converts a state file in the format of redb 2 to the one redb 3 and later read.
+///
+/// The original is never worked on: it is copied aside as `<name>.v2` and stays there,
+/// a second copy is converted, and only the finished file replaces the original, in one
+/// rename. A conversion that fails or is interrupted leaves the state file as it was.
+fn convert_old_format(path: &Path) -> Result<(), StoreError> {
+    let failed = |error: &dyn std::fmt::Display| {
+        StoreError::Open(format!(
+            "the state file of an older version cannot be converted: {error}"
+        ))
+    };
+    let beside = |suffix: &str| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(".");
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    let kept = beside(OLD_FORMAT_SUFFIX);
+    let converting = beside("converting");
+
+    std::fs::copy(path, &kept).map_err(|error| failed(&error))?;
+    std::fs::copy(path, &converting).map_err(|error| failed(&error))?;
+    {
+        let mut old = redb2::Database::open(&converting).map_err(|error| failed(&error))?;
+        old.upgrade().map_err(|error| failed(&error))?;
+    }
+    std::fs::rename(&converting, path).map_err(|error| failed(&error))
+}
+
 /// The per-platform directory the database lives in.
 ///
 /// Linux and the BSDs follow the XDG base directory spec, macOS uses
@@ -381,6 +423,98 @@ mod tests {
         store.save(&trimmed).expect("save again");
 
         assert_eq!(store.load().expect("load"), Some(trimmed));
+    }
+
+    /// Writes `snapshot` the way wipTracker 1.3 and older did: the same rows, in a file
+    /// of redb 2's default format.
+    fn write_old_format(path: &Path, snapshot: &Snapshot) {
+        const OLD_TASKS: redb2::TableDefinition<'_, u64, &str> =
+            redb2::TableDefinition::new("tasks");
+        const OLD_META: redb2::TableDefinition<'_, &str, &str> =
+            redb2::TableDefinition::new("meta");
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let current = dir.path().join("current.redb");
+        RedbStore::open(&current)
+            .expect("open")
+            .save(snapshot)
+            .expect("save");
+        let rows = Database::open(&current).expect("reopen");
+        let rows = rows.begin_read().expect("read");
+
+        let old = redb2::Database::create(path).expect("create in the old format");
+        let transaction = old.begin_write().expect("write");
+        {
+            let mut tasks = transaction.open_table(OLD_TASKS).expect("tasks");
+            for row in rows.open_table(TASKS).expect("tasks").iter().expect("rows") {
+                let (id, task) = row.expect("row");
+                tasks.insert(id.value(), task.value()).expect("insert");
+            }
+            let mut meta = transaction.open_table(OLD_META).expect("meta");
+            for row in rows.open_table(META).expect("meta").iter().expect("rows") {
+                let (key, value) = row.expect("row");
+                meta.insert(key.value(), value.value()).expect("insert");
+            }
+        }
+        transaction.commit().expect("commit");
+    }
+
+    #[test]
+    fn the_current_redb_refuses_a_file_of_the_old_format() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("state.redb");
+        write_old_format(&path, &snapshot());
+        assert!(matches!(
+            Database::create(&path),
+            Err(DatabaseError::UpgradeRequired(_))
+        ));
+    }
+
+    #[test]
+    fn a_state_file_of_an_older_version_is_converted_and_reads_back_unchanged() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("state.redb");
+        let original = snapshot();
+        write_old_format(&path, &original);
+        let before = std::fs::read(&path).expect("read the old file");
+
+        {
+            let store = RedbStore::open(&path).expect("open the old file");
+            assert_eq!(store.load().expect("load"), Some(original.clone()));
+
+            let mut changed = original.clone();
+            changed.next_number = 99;
+            store.save(&changed).expect("save after the conversion");
+            assert_eq!(store.load().expect("load"), Some(changed));
+        }
+
+        let kept = dir.path().join("state.redb.v2");
+        assert_eq!(
+            std::fs::read(&kept).expect("the copy from before the conversion"),
+            before,
+            "the old file should be kept untouched beside the converted one"
+        );
+        assert!(
+            !dir.path().join("state.redb.converting").exists(),
+            "the working copy should be gone"
+        );
+        // The second start finds the new format and converts nothing.
+        std::fs::remove_file(&kept).expect("remove the kept copy");
+        drop(RedbStore::open(&path).expect("reopen"));
+        assert!(!kept.exists());
+    }
+
+    #[test]
+    fn a_failed_conversion_leaves_the_state_file_as_it_was() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("state.redb");
+        write_old_format(&path, &snapshot());
+        let before = std::fs::read(&path).expect("read the old file");
+        // A directory where the kept copy belongs: the conversion cannot start.
+        std::fs::create_dir(dir.path().join("state.redb.v2")).expect("block the copy");
+
+        assert!(matches!(RedbStore::open(&path), Err(StoreError::Open(_))));
+        assert_eq!(std::fs::read(&path).expect("read again"), before);
     }
 
     #[test]
