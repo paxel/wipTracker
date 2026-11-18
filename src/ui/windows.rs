@@ -265,7 +265,8 @@ pub fn show_all(
         window(
             ctx,
             "tabs",
-            "WipTracker",
+            // Named after its page: the bar's own window is the one called "WipTracker".
+            &format!("WipTracker — {}", tab.label()),
             [780.0, 460.0],
             &mut placing,
             &mut still_open,
