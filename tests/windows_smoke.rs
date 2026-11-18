@@ -110,6 +110,96 @@ fn the_end_day_and_week_windows_render() {
     }
 }
 
+/// Draws the small windows that ask something, each in a harness of its real size, and
+/// the pages with the most buttons, into PNGs under `target/render`: a button that no
+/// longer fits its window shows there as a scroll bar, not as a failing assertion.
+#[test]
+fn the_prompts_and_the_button_pages_render() {
+    use egui_kittest::kittest::Queryable as _;
+    type Setup = fn(&mut WipTracker);
+    let cases: [(&str, [f32; 2], Setup); 7] = [
+        ("prompt_pause", [360.0, 200.0], |app| {
+            app.windows_mut().pause_reminder = true;
+        }),
+        ("prompt_day_over", [380.0, 200.0], |app| {
+            app.windows_mut().day_over = true;
+        }),
+        ("prompt_launcher", [420.0, 230.0], |app| {
+            app.windows_mut().launcher_offer = true;
+        }),
+        ("prompt_end_earlier", [460.0, 300.0], |app| {
+            app.windows_mut().end_earlier_offered = true;
+        }),
+        ("page_timers", [780.0, 460.0], |app| {
+            app.windows_mut().tab = Some(Tab::Timers);
+        }),
+        ("page_groom", [780.0, 460.0], |app| {
+            app.windows_mut().tab = Some(Tab::Groom);
+        }),
+        ("page_stack", [780.0, 460.0], |app| {
+            app.windows_mut().tab = Some(Tab::Stack);
+        }),
+    ];
+    std::fs::create_dir_all("target/render").expect("create render dir");
+    for (name, size, setup) in cases {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(size[0], size[1]))
+            .wgpu()
+            .build_eframe(|cc| {
+                let (tracker, _) = running_since_yesterday();
+                let mut app = WipTracker::with_tracker(cc, tracker);
+                setup(&mut app);
+                app
+            });
+        harness.run();
+        if name == "page_timers" {
+            harness
+                .get_by_label_contains("pause reminder at")
+                .click_accesskit();
+            harness.run();
+        }
+        harness
+            .render()
+            .expect("wgpu render")
+            .save(format!("target/render/{name}.png"))
+            .expect("save png");
+    }
+
+    // One button under the pointer, and one held down.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(380.0, 200.0))
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = WipTracker::with_tracker(cc, populated());
+            app.windows_mut().day_over = true;
+            app
+        });
+    harness.run();
+    harness.get_by_label("End day").hover();
+    harness.run();
+    harness
+        .render()
+        .expect("wgpu render")
+        .save("target/render/button_hovered.png")
+        .expect("save png");
+    let center = harness.get_by_label("Not yet").rect().center();
+    let events = &mut harness.input_mut().events;
+    events.push(egui::Event::PointerMoved(center));
+    events.push(egui::Event::PointerButton {
+        pos: center,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    harness.step();
+    harness.step();
+    harness
+        .render()
+        .expect("wgpu render")
+        .save("target/render/button_pressed.png")
+        .expect("save png");
+}
+
 #[test]
 fn the_windows_survive_an_empty_tracker() {
     for tab in Tab::ALL {
