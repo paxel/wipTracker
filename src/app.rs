@@ -19,7 +19,7 @@ use crate::ui::format;
 use crate::ui::hint;
 use crate::ui::menu::{self, MenuAction};
 use crate::ui::place::Placement;
-use crate::ui::windows::{self, OpenWindows};
+use crate::ui::windows::{self, OpenWindows, Tab};
 
 /// Which windowing backend the app asks for on Linux.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -715,10 +715,10 @@ impl WipTracker {
             BarAction::FinishTask => self.finish_task(now),
             BarAction::ToggleMenu => self.toggle_menu(time),
             BarAction::StartRename => self.start_rename(),
-            BarAction::OpenStack => self.windows.stack = true,
+            BarAction::OpenStack => self.windows.tab = Some(Tab::Stack),
             BarAction::SwitchToPause => self.switch_to_pause(now),
-            BarAction::OpenRevive => self.windows.revive = true,
-            BarAction::OpenTimer => self.windows.timer = true,
+            BarAction::OpenRevive => self.windows.tab = Some(Tab::Revive),
+            BarAction::OpenTimer => self.windows.tab = Some(Tab::Timers),
             BarAction::None => {}
         }
     }
@@ -746,8 +746,8 @@ impl WipTracker {
             MenuAction::Rename => self.start_rename(),
             MenuAction::Finish => self.finish_task(now),
             MenuAction::Pause => self.switch_to_pause(now),
-            MenuAction::OpenStack => self.windows.stack = true,
-            MenuAction::OpenTimer => self.windows.timer = true,
+            MenuAction::OpenStack => self.windows.tab = Some(Tab::Stack),
+            MenuAction::OpenTimer => self.windows.tab = Some(Tab::Timers),
             MenuAction::ToggleDuration => {
                 self.show_duration = !self.show_duration;
                 self.dirty = true;
@@ -800,12 +800,6 @@ impl WipTracker {
                     Err(error) => self.notice = Some(format!("Could not change that: {error}")),
                 }
             }
-            MenuAction::ToggleNag => {
-                let day = now.date_naive();
-                let muted = self.tracker.nag_muted(day);
-                self.tracker.set_nag_muted(day, !muted);
-                self.dirty = true;
-            }
             MenuAction::ToggleLightMode => {
                 self.light_mode = !self.light_mode;
                 self.apply_palette(ctx);
@@ -818,11 +812,11 @@ impl WipTracker {
                 self.hue_shift = None;
                 self.apply_palette(ctx);
             }
-            MenuAction::OpenGroom => self.windows.groom = true,
-            MenuAction::OpenEndDay => self.windows.end_day = true,
-            MenuAction::OpenEndEarlier => self.windows.end_earlier = true,
-            MenuAction::OpenWeek => self.windows.week = true,
-            MenuAction::OpenRevive => self.windows.revive = true,
+            MenuAction::OpenGroom => self.windows.tab = Some(Tab::Groom),
+            MenuAction::OpenToday => self.windows.tab = Some(Tab::Today),
+            MenuAction::OpenEndEarlier => self.windows.tab = Some(Tab::EndEarlier),
+            MenuAction::OpenWeek => self.windows.tab = Some(Tab::Week),
+            MenuAction::OpenRevive => self.windows.tab = Some(Tab::Revive),
             MenuAction::None => {}
         }
     }
@@ -851,7 +845,6 @@ impl WipTracker {
             return;
         }
         self.end_earlier_offered_for = Some(since);
-        self.windows.end_earlier = true;
         self.windows.end_earlier_offered = true;
         self.journal(&format!(
             "end earlier: offered, '{}' focused since {}",
@@ -864,7 +857,7 @@ impl WipTracker {
         let Some(rename) = &mut self.rename else {
             return false;
         };
-        let id = egui::Id::new("rename_editor");
+        let id = egui::Id::unique("rename_editor");
         // Both colours are named here rather than left to the theme. The field's
         // background otherwise comes from `visuals.extreme_bg_color`, and a mac user saw
         // white text in a white field — whatever reaches the style on that platform, an
@@ -875,7 +868,7 @@ impl WipTracker {
             .background_color(theme::current().field)
             .desired_width(theme::LABEL_WIDTH)
             .show(ui);
-        let response = output.response;
+        let response = egui::Response::clone(&output.response).accessible_name("task name");
         if !rename.focus_requested {
             response.request_focus();
             // Select the whole placeholder, so the first keystroke replaces it.
@@ -947,7 +940,13 @@ impl eframe::App for WipTracker {
             if let Some(alarm) = &self.alarm {
                 alarm.sound_day_over();
             }
+            self.windows.day_over = true;
+            self.journal("day timer: reached, asked whether to end the day");
             self.dirty = true;
+        }
+        if self.tracker.take_due_day_prompt(now) {
+            self.windows.day_over = true;
+            self.journal("day timer: asked again");
         }
         if self.tracker.take_due_pause_reminder(now) {
             self.windows.pause_reminder = true;
@@ -1012,7 +1011,7 @@ impl eframe::App for WipTracker {
 
         let name = self.tracker.focused_name().to_owned();
         // The clock shows today's time so that the number agrees with the task's timer and
-        // with the end-day report; the all-time total lives in the tooltip.
+        // with today's report; the all-time total lives in the tooltip.
         let clock_parts = self.show_duration.then(|| self.clock_parts(now)).flatten();
         let clock = clock_parts
             .as_ref()
@@ -1087,8 +1086,6 @@ impl eframe::App for WipTracker {
                     decorated: self.is_decorated(),
                     taskbar_shown: self.shows_in_taskbar(),
                     hints_shown: self.hints,
-                    day_timer_set: !self.tracker.day_timer().is_zero(),
-                    nag_muted: self.tracker.nag_muted(now.date_naive()),
                     autostart: self.autostart,
                     light_mode: self.light_mode,
                     palette_shuffled: self.hue_shift.is_some(),
@@ -1142,6 +1139,23 @@ impl eframe::App for WipTracker {
             }
         }
 
+        let mut day_ended = false;
+        if self.windows.day_over {
+            let worked = self.tracker.worked_on(now.date_naive());
+            match windows::day_over(&ctx, &mut self.windows, worked) {
+                windows::DayOverChoice::EndDay => {
+                    self.tracker.close_day(now);
+                    self.dirty = true;
+                    day_ended = true;
+                }
+                windows::DayOverChoice::NotYet => {
+                    self.journal("day timer: not yet");
+                    self.tracker.snooze_day_prompt(now);
+                }
+                windows::DayOverChoice::None => {}
+            }
+        }
+
         self.offer_end_earlier(&ctx, now);
 
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);
@@ -1164,9 +1178,9 @@ impl eframe::App for WipTracker {
 
         self.maybe_save();
 
-        // Closing the day is the end of the session: there is nothing left for the bar to
+        // Ending the day is the end of the session: there is nothing left for the bar to
         // show, and a clock left running overnight would credit the wrong day.
-        if outcome.day_closed {
+        if outcome.day_closed || day_ended {
             self.journal("day closed");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

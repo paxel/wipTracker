@@ -50,10 +50,15 @@ pub struct Tracker {
     /// When a reminder put off with "not now" asks again. Not stored: after a restart the
     /// grace window decides, like on any other start.
     reminder_snoozed_until: Option<DateTime<Local>>,
+    /// Until when "not yet" has put off the question whether to end the day. Not stored.
+    day_prompt_snoozed_until: Option<DateTime<Local>>,
     /// When the currently focused task started collecting time.
     active_since: DateTime<Local>,
     /// When the focused task became the focused task: the start of its focus span.
     focused_since: DateTime<Local>,
+    /// Since when this run of the app has been counting: its start, or the moment a
+    /// short gap before it was taken up from. Not stored.
+    counting_since: DateTime<Local>,
 }
 
 impl Tracker {
@@ -72,8 +77,10 @@ impl Tracker {
             idle_pause: Duration::ZERO,
             pause_reminder: None,
             reminder_snoozed_until: None,
+            day_prompt_snoozed_until: None,
             active_since: now,
             focused_since: now,
+            counting_since: now,
         }
     }
 
@@ -117,8 +124,10 @@ impl Tracker {
             idle_pause: snapshot.idle_pause,
             pause_reminder: snapshot.pause_reminder,
             reminder_snoozed_until: None,
+            day_prompt_snoozed_until: None,
             active_since: resume_from,
             focused_since: snapshot.focused_since.unwrap_or(resume_from).min(now),
+            counting_since: resume_from,
         };
         tracker
             .tasks
@@ -524,13 +533,13 @@ impl Tracker {
         !self.day_timer.is_zero() && self.worked_on(day) >= self.day_timer
     }
 
-    /// How long the reminder waits before sounding again, while it is not muted.
-    pub const NAG_INTERVAL: TimeDelta = TimeDelta::minutes(10);
+    /// How long "not yet" puts the question whether to end the day off.
+    pub const DAY_PROMPT_SNOOZE: TimeDelta = TimeDelta::minutes(15);
 
-    /// Whether the day alarm should sound now. Reported once when the timer is reached,
-    /// and then, as long as the reminder is not muted, once every [`Self::NAG_INTERVAL`].
+    /// Whether the day's timer has just been reached. Reported once a day.
     ///
-    /// Call after [`Self::accrue`]; the caller is expected to make the noise.
+    /// Call after [`Self::accrue`]; the caller makes the noise and asks whether to end
+    /// the day.
     pub fn take_due_day_alarm(&mut self, now: DateTime<Local>) -> bool {
         if !self.day_over(now.date_naive()) {
             return false;
@@ -538,28 +547,34 @@ impl Tracker {
         let Some(record) = self.history.get_mut(&now.date_naive()) else {
             return false;
         };
-        let due = match record.day_alarmed {
-            None => true,
-            Some(last) => {
-                !record.nag_muted && now.signed_duration_since(last) >= Self::NAG_INTERVAL
-            }
-        };
-        if due {
-            record.day_alarmed = Some(now);
+        if record.day_alarmed.is_some() {
+            return false;
         }
-        due
+        record.day_alarmed = Some(now);
+        true
     }
 
-    /// Whether the repeating day reminder is muted for `day`. Tomorrow starts unmuted.
-    pub fn nag_muted(&self, day: NaiveDate) -> bool {
-        self.history
-            .get(&day)
-            .is_some_and(|record| record.nag_muted)
+    /// Puts the question whether to end the day off by [`Self::DAY_PROMPT_SNOOZE`].
+    pub fn snooze_day_prompt(&mut self, now: DateTime<Local>) {
+        self.day_prompt_snoozed_until = now.checked_add_signed(Self::DAY_PROMPT_SNOOZE);
     }
 
-    /// Mutes or unmutes the repeating day reminder, for this day only.
-    pub fn set_nag_muted(&mut self, day: NaiveDate, muted: bool) {
-        self.history.entry(day).or_default().nag_muted = muted;
+    /// Whether the question whether to end the day is due again after a "not yet": the
+    /// snooze has run out and a task other than the pause is focused. A new day drops
+    /// the snooze; its own timer asks when it is reached.
+    pub fn take_due_day_prompt(&mut self, now: DateTime<Local>) -> bool {
+        let Some(until) = self.day_prompt_snoozed_until else {
+            return false;
+        };
+        if until.date_naive() != now.date_naive() || !self.day_over(now.date_naive()) {
+            self.day_prompt_snoozed_until = None;
+            return false;
+        }
+        if now < until || self.focused_id() == PAUSE_ID {
+            return false;
+        }
+        self.day_prompt_snoozed_until = None;
+        true
     }
 
     /// The tasks whose daily timer has just been reached, each reported once per day.
@@ -622,10 +637,15 @@ impl Tracker {
         self.focused_since
     }
 
-    /// Whether the focused task's span began on an earlier day than `now`: the task ran
-    /// through midnight, which is what ending earlier is usually for.
+    /// Whether the focused task ran through midnight and was credited for it, which is
+    /// what ending earlier is usually for: its span began on an earlier day than `now`,
+    /// and so did this run of the app. A start on a new day finds the old span too, but
+    /// the night in between was never counted, so there is nothing to take off.
     pub fn span_crossed_midnight(&self, now: DateTime<Local>) -> bool {
-        self.focused_id() != PAUSE_ID && self.focused_since.date_naive() < now.date_naive()
+        let today = now.date_naive();
+        self.focused_id() != PAUSE_ID
+            && self.focused_since.date_naive() < today
+            && self.counting_since.date_naive() < today
     }
 
     /// What ending the focus span at `cut` would take off the focused task, day by day,
@@ -1252,37 +1272,70 @@ mod tests {
         assert!(tracker.day_over(at(1, 11).date_naive()));
     }
 
-    /// Once over, the reminder repeats every ten minutes until muted — and muting is only
-    /// for that day.
+    /// A history written by 1.4.0 carries the mute flag of the repeating alarm on each
+    /// day. The flag is gone; the day still loads.
     #[test]
-    fn the_day_alarm_nags_every_ten_minutes_until_muted() {
+    fn a_day_record_with_the_old_mute_flag_still_loads() {
+        use crate::domain::day::DayRecord;
+
+        let mut day = DayRecord::default();
+        day.credit(1, hours(2), at(1, 9), at(1, 11));
+        let mut value = serde_json::to_value(&day).expect("encode");
+        value
+            .as_object_mut()
+            .expect("an object")
+            .insert("nag_muted".to_owned(), serde_json::Value::Bool(true));
+
+        let loaded: DayRecord = serde_json::from_value(value).expect("decode");
+        assert_eq!(loaded.duration_of(1), hours(2));
+    }
+
+    /// "Not yet" asks again a quarter of an hour later, without a second alarm, and not
+    /// while the pause is running.
+    #[test]
+    fn not_yet_asks_again_after_a_quarter_of_an_hour() {
         let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
         tracker.set_day_timer(hours(1));
-        tracker.push_new_task(at(1, 9));
         tracker.accrue(at(1, 10));
         assert!(tracker.take_due_day_alarm(at(1, 10)));
-
-        let five_later = at(1, 10) + TimeDelta::minutes(5);
-        tracker.accrue(five_later);
         assert!(
-            !tracker.take_due_day_alarm(five_later),
-            "five minutes is inside the interval"
+            !tracker.take_due_day_prompt(at(1, 10)),
+            "nothing was put off yet"
         );
 
+        tracker.snooze_day_prompt(at(1, 10));
         let ten_later = at(1, 10) + TimeDelta::minutes(10);
         tracker.accrue(ten_later);
-        assert!(tracker.take_due_day_alarm(ten_later), "ten minutes is due");
-
-        tracker.set_nag_muted(ten_later.date_naive(), true);
-        let twenty_later = at(1, 10) + TimeDelta::minutes(20);
-        tracker.accrue(twenty_later);
+        assert!(!tracker.take_due_day_prompt(ten_later));
         assert!(
-            !tracker.take_due_day_alarm(twenty_later),
-            "muted for the day"
+            !tracker.take_due_day_alarm(ten_later),
+            "the alarm sounds once a day"
         );
 
-        // The next day starts unmuted: a fresh record carries no mute.
-        assert!(!tracker.nag_muted(at(2, 9).date_naive()));
+        let fifteen_later = at(1, 10) + TimeDelta::minutes(15);
+        tracker.accrue(fifteen_later);
+        assert!(tracker.take_due_day_prompt(fifteen_later));
+        assert!(
+            !tracker.take_due_day_prompt(fifteen_later),
+            "asked once per snooze"
+        );
+
+        tracker.snooze_day_prompt(fifteen_later);
+        tracker.select(PAUSE_ID, fifteen_later).expect("pause");
+        assert!(
+            !tracker.take_due_day_prompt(at(1, 11)),
+            "not during the pause"
+        );
+        tracker.select(task, at(1, 11)).expect("back to work");
+        assert!(tracker.take_due_day_prompt(at(1, 11)));
+
+        tracker.snooze_day_prompt(at(1, 11));
+        tracker.accrue(at(2, 9));
+        assert!(
+            !tracker.take_due_day_prompt(at(2, 9)),
+            "a new day starts unasked"
+        );
     }
 
     /// Without a day timer there is never a day alarm, whatever was worked.
@@ -1501,6 +1554,34 @@ mod tests {
         let snapshot = tracker.snapshot(true, None, None);
         let restored = Tracker::from_snapshot(&snapshot, at(1, 14));
         assert_eq!(restored.focused_since(), at(1, 13));
+    }
+
+    /// The app was closed in the evening with a task focused and started again the next
+    /// morning: the span is yesterday's, but the night was never counted, so there is
+    /// nothing to offer.
+    #[test]
+    fn a_start_on_the_next_day_is_not_a_span_through_midnight() {
+        let mut tracker = Tracker::new(at(1, 9));
+        let task = tracker.push_new_task(at(1, 9));
+        tracker.accrue(at(1, 17));
+        let stored = tracker.snapshot(true, None, None);
+
+        let mut restored = Tracker::from_snapshot(&stored, at(2, 9));
+        assert_eq!(restored.focused_id(), task);
+        assert_eq!(
+            restored.focused_since(),
+            at(1, 9),
+            "the span is yesterday's"
+        );
+        assert!(!restored.span_crossed_midnight(at(2, 9)));
+        assert_eq!(
+            restored.duration_on(task, at(2, 9).date_naive()),
+            Duration::ZERO
+        );
+
+        // Left running from there, it does run through the next midnight.
+        restored.accrue(at(3, 9));
+        assert!(restored.span_crossed_midnight(at(3, 9)));
     }
 
     /// A machine that failed to shut down: the task ran from Monday evening to Tuesday

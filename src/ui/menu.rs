@@ -23,7 +23,7 @@ pub enum MenuAction {
     OpenStack,
     OpenTimer,
     OpenGroom,
-    OpenEndDay,
+    OpenToday,
     OpenEndEarlier,
     OpenWeek,
     OpenRevive,
@@ -33,8 +33,6 @@ pub enum MenuAction {
     ToggleTaskbar,
     /// Explain the bar's controls on hover, or stop doing so.
     ToggleHints,
-    /// Mute or unmute the repeating day reminder, for today only.
-    ToggleNag,
     /// Start, or stop starting, WipTracker with the session.
     ToggleAutostart,
     /// Switch between the dark and the light palette.
@@ -64,10 +62,6 @@ pub struct MenuContext<'a> {
     pub taskbar_shown: bool,
     /// Whether the hint window explains the bar's controls on hover.
     pub hints_shown: bool,
-    /// Whether a day timer is set at all; without one the reminder entry means nothing.
-    pub day_timer_set: bool,
-    /// Whether the repeating day reminder is muted for today.
-    pub nag_muted: bool,
     /// Whether WipTracker starts with the session; `None` where that cannot be known.
     pub autostart: Option<bool>,
     /// Whether the light palette is in use instead of the dark one.
@@ -153,11 +147,6 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
     } else {
         "finish"
     };
-    let nag_label = if context.nag_muted {
-        "unmute day reminder"
-    } else {
-        "mute day reminder"
-    };
     let autostart_label = if context.autostart == Some(true) {
         "stop starting with my session"
     } else {
@@ -222,10 +211,10 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             "Finish several open tasks at once",
         ),
         item(
-            "end day",
-            MenuAction::OpenEndDay,
+            "today",
+            MenuAction::OpenToday,
             true,
-            "Today's report; closing the day saves and quits",
+            "Today's report; its End day button saves and quits",
         ),
         item(
             "end earlier",
@@ -258,13 +247,6 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             MenuAction::ToggleAutostart,
             context.autostart.is_some(),
             "Start WipTracker automatically when you log in, or stop doing so",
-        ),
-        item(
-            nag_label,
-            MenuAction::ToggleNag,
-            context.day_timer_set,
-            "Once the day's timer is reached, WipTracker repeats its noise every ten \
-             minutes. Muting lasts until midnight — tomorrow it reminds again.",
         ),
         Row::Item(Item {
             label: frame_label.to_owned(),

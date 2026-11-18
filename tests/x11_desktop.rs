@@ -349,8 +349,8 @@ fn the_taskbar_toggle_applies_while_running() {
         .wait_for(app.pid(), "WipTracker", PATIENCE)
         .expect("the bar window appears");
     let (_, (x, y, _, _)) = open_menu(&desk, &app).expect("the burger opens the menu");
-    // "leave the taskbar" is the seventeenth item, below three separators.
-    click_at(x as i32 + 135, y as i32 + menu_row_y(16, 3));
+    // "leave the taskbar" is the sixteenth item, below three separators.
+    click_at(x as i32 + 135, y as i32 + menu_row_y(15, 3));
     assert!(
         desk.wait_for_state(bar, desk.skip_taskbar, true, PATIENCE),
         "the toggle takes the bar out of the taskbar without a restart"
@@ -365,14 +365,15 @@ fn closing_the_day_quits_the_app() {
     };
     let pointer = PointerGuard(desk.pointer());
     let (_, (x, y, _, _)) = open_menu(&desk, &app).expect("the burger opens the menu");
-    // "end day" is the ninth item, below two separators.
+    // "today" is the ninth item, below two separators.
     click_at(x as i32 + 135, y as i32 + menu_row_y(8, 2));
     let report = desk
-        .wait_for(app.pid(), "WipTracker — end day", PATIENCE)
-        .expect("the end-day window opens");
-    let (rx, ry, _, _) = desk.geometry(report).expect("end-day geometry");
-    // "Close day" sits under the export button; day empty, so the layout is fixed.
-    click_at(rx as i32 + 38, ry as i32 + 255);
+        .wait_for(app.pid(), "WipTracker — Today", PATIENCE)
+        .expect("the tabbed window opens on today's report");
+    let (rx, ry, _, _) = desk.geometry(report).expect("report geometry");
+    // "End day" sits under the tabs and the export button; day empty, so the layout is
+    // fixed.
+    click_at(rx as i32 + 38, ry as i32 + 299);
     let until = Instant::now() + PATIENCE;
     let exited = loop {
         if let Ok(Some(_)) = app.child.try_wait() {
@@ -383,6 +384,6 @@ fn closing_the_day_quits_the_app() {
         }
         std::thread::sleep(Duration::from_millis(300));
     };
-    assert!(exited, "closing the day saves and quits");
+    assert!(exited, "ending the day saves and quits");
     drop(pointer);
 }

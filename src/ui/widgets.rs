@@ -148,9 +148,8 @@ pub fn grip(ui: &mut Ui) -> Response {
     let size = egui::vec2(theme::GRIP_WIDTH, theme::BUTTON_SIZE.y);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
     let enabled = ui.is_enabled();
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "move the bar")
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, enabled, "move the bar"));
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -177,8 +176,7 @@ pub fn grip(ui: &mut Ui) -> Response {
 pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response, Press) {
     let (rect, response) = ui.allocate_exact_size(theme::BUTTON_SIZE, Sense::click());
     let enabled = ui.is_enabled();
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, icon.label()));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, icon.label()));
     let press = track_press(ui, &response, hold, armed);
     if !ui.is_rect_visible(rect) {
         return (response, press);
@@ -253,7 +251,7 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
         Sense::hover()
     };
     let (rect, response) = ui.allocate_exact_size(size, sense);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -280,40 +278,89 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
     response
 }
 
-/// A button in a report window, painted rather than themed.
+/// How far a button's face stands above its base, and so how far a press moves it.
+const BUTTON_LIFT: f32 = 3.0;
+/// No button is narrower than this, however short its word.
+const BUTTON_MIN_WIDTH: f32 = 96.0;
+
+/// A button in the windows, painted rather than themed.
 ///
-/// The themed `Button` takes a fill two shades off the window background and no border,
-/// so next to a striped table it reads as one more stripe. This one has a border and its
-/// own colours in every state; `primary` marks the one action the window is for.
+/// The themed `Button` is a rectangle the size of its text, two shades off the window
+/// background: it reads as a label. This one is a key: a face with room around the word,
+/// standing on a darker base, that sinks onto the base while it is pressed. `primary`
+/// marks the one action the window is for and gets the brighter face.
 pub fn action_button(ui: &mut Ui, label: &str, primary: bool) -> Response {
     let palette = theme::current();
+    let enabled = ui.is_enabled();
     let font = egui::FontId::proportional(14.0);
-    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, palette.text));
-    let pad = egui::vec2(14.0, 6.0);
-    let (rect, response) = ui.allocate_exact_size(galley.rect.expand2(pad).size(), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let text_color = if enabled {
+        palette.text
+    } else {
+        palette.text_dim
+    };
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, text_color));
+    let pad = egui::vec2(18.0, 8.0);
+    let face_size = egui::vec2(
+        galley.rect.width().max(BUTTON_MIN_WIDTH - pad.x - pad.x) + pad.x + pad.x,
+        galley.rect.height() + pad.y + pad.y,
+    );
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(face_size.x, face_size.y + BUTTON_LIFT),
+        Sense::click(),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
     if !ui.is_rect_visible(rect) {
         return response;
     }
 
-    let (fill, border) = if response.is_pointer_button_down_on() {
-        (palette.hold_fill, palette.text_dim)
-    } else if response.hovered() {
-        (palette.button_active, palette.text_dim)
-    } else if primary {
-        (palette.button_active, palette.border)
+    let rest = if primary {
+        palette.hold_fill
     } else {
-        (palette.button_idle, palette.border)
+        palette.button_hover
     };
-    ui.painter().rect(
-        rect,
-        6.0,
-        fill,
-        Stroke::new(1.0, border),
+    let pressed = enabled && response.is_pointer_button_down_on();
+    let face_fill = if !enabled {
+        palette.button_idle
+    } else if pressed {
+        rest.lerp_to_gamma(palette.background, 0.25)
+    } else if response.hovered() {
+        rest.lerp_to_gamma(palette.text, 0.14)
+    } else {
+        rest
+    };
+    let base_fill = rest.lerp_to_gamma(egui::Color32::BLACK, 0.45);
+    let sunk = if pressed { BUTTON_LIFT } else { 0.0 };
+    let face = egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.min.y + sunk), face_size);
+
+    let painter = ui.painter();
+    if enabled {
+        // The base the face stands on: the full height, so its lower edge shows under the
+        // face until a press covers it.
+        painter.rect_filled(rect, 7.0, base_fill);
+    }
+    painter.rect(
+        face,
+        7.0,
+        face_fill,
+        Stroke::new(1.0, palette.border),
         egui::StrokeKind::Inside,
     );
-    ui.painter()
-        .galley(rect.shrink2(pad).min, galley, palette.text);
+    if enabled && !pressed {
+        // A lighter line along the top edge, where light from above would catch it.
+        let inset = 7.0;
+        painter.line_segment(
+            [
+                egui::pos2(face.left() + inset, face.top() + 1.5),
+                egui::pos2(face.right() - inset, face.top() + 1.5),
+            ],
+            Stroke::new(1.0, face_fill.lerp_to_gamma(palette.text, 0.25)),
+        );
+    }
+    let text_pos = egui::pos2(
+        face.center().x - galley.rect.width() / 2.0,
+        face.center().y - galley.rect.height() / 2.0,
+    );
+    painter.galley(text_pos, galley, text_color);
     response
 }
 
@@ -327,4 +374,38 @@ pub fn sweep(ui: &Ui, rect: egui::Rect, progress: f32, color: Color32) {
         egui::vec2(rect.width() * progress.min(1.0), rect.height()),
     );
     ui.painter().rect_filled(filled, 4.0, color);
+}
+
+/// One tab of the tabbed window: a pill when it is the page on screen, plain text that
+/// lights up under the pointer otherwise. Painted rather than themed, for the reason
+/// [`action_button`] is.
+pub fn tab_button(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    let palette = theme::current();
+    let font = egui::FontId::proportional(14.0);
+    let color = if selected {
+        palette.text
+    } else {
+        palette.text_dim
+    };
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, color));
+    let pad = egui::vec2(12.0, 6.0);
+    let (rect, response) = ui.allocate_exact_size(galley.rect.expand2(pad).size(), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, selected, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    if selected {
+        ui.painter().rect(
+            rect,
+            6.0,
+            palette.button_active,
+            Stroke::new(1.0, palette.border),
+            egui::StrokeKind::Inside,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 6.0, palette.button_idle);
+    }
+    ui.painter().galley(rect.shrink2(pad).min, galley, color);
+    response
 }

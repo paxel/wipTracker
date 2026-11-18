@@ -62,8 +62,8 @@ fn announce_task(task: &str) {
 fn announce_day_over() {
     notify(
         "The day's timer is reached",
-        "The bar clock turns red for the rest of the day. The reminder repeats every \
-         ten minutes; the menu can mute it for today.",
+        "The bar clock turns red for the rest of the day, and a window asks whether to \
+         end the day.",
     );
     play(DAY_TONES);
 }

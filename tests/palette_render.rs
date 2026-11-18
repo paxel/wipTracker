@@ -9,6 +9,7 @@ use egui_kittest::Harness;
 use wiptracker::app::{WipTracker, prefers_decorations};
 use wiptracker::domain::tracker::Tracker;
 use wiptracker::theme;
+use wiptracker::ui::windows::Tab;
 
 fn at(hour: u32) -> DateTime<Local> {
     Local
@@ -56,7 +57,7 @@ fn the_palettes_render_readable() {
         .with_size(egui::vec2(460.0, 420.0))
         .wgpu()
         .build_eframe(|cc| WipTracker::with_tracker(cc, stacked_tracker()));
-    harness.state_mut().windows_mut().stack = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Stack);
     harness.run();
     save(&mut harness, "stack_gradient_dark");
     drop(harness);

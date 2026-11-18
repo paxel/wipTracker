@@ -95,8 +95,8 @@ To have it start with your session, use menu → _start with my session_. It wri
 launchd agent to `~/Library/LaunchAgents/dev.paxel.wiptracker.plist`, which macOS lists
 under _System Settings → General → Login Items → Allow in the Background_; switching it off
 in the menu deletes the file again. The bar has no Dock icon and no Cmd-Tab entry by
-design — it is a one-line window, not an application to switch to — so _end day_ is how
-you close it.
+design — it is a one-line window, not an application to switch to — so _End day_ in
+today's report is how you close it.
 
 Or use a package manager — each release pushes a formula and a manifest.
 
@@ -130,8 +130,12 @@ repeats, so `new task 7` means the same task tomorrow.
 the bar; the one underneath stops collecting time but stays open.
 
 **Switch back.** Click the fork button, or pick _select_ from the menu. The task stack
-opens in its own window: focused task first, everything else in stack order, `pause` last,
-each row with today's time and its total. Click one to work on it again.
+opens: focused task first, everything else in stack order, `pause` last, each row with
+today's time and its total. Click one to work on it again.
+
+**One window for everything else.** The stack, revive, the timers, groom, today's report,
+end earlier and the week are the tabs of one window beside the bar. A menu entry or a hold
+on the bar opens it on its tab, and the tabs switch between them from there.
 
 **Pause.** Hold the fork button, or pick `pause` in the task stack. It is a
 permanent task that can never be finished, so pauses show up in the reports like everything
@@ -150,28 +154,28 @@ that task has been worked on that long today — and the clock on the bar turns 
 rest of the day, so a missed beep is not a missed limit. _off_ removes the alarm; the
 default applies to every task created afterwards.
 
-**Let the pause start itself.** _auto-pause when idle_, in the same window, is off until
+**Let the pause start itself.** _auto-pause when idle_, on the same page, is off until
 you choose a span. Chosen, WipTracker switches to `pause` once keyboard and mouse have
 been quiet that long, and takes the quiet minutes off the task — the pause counts from
 when you stopped, not from when it was noticed. Off means your input is never watched.
 
-**Set a limit for the whole day.** The same window's first row, _the whole day_, counts
-every task together — pauses not counted. Reaching it plays a distinct noise and turns the
-bar clock red for the rest of the day, outranking the amber. The alarm then repeats every
-ten minutes until menu → _mute day reminder_ silences it; the muting lasts until midnight,
-so tomorrow it reminds again on its own. The end-day report shows the count behind it.
+**Set a limit for the whole day.** The same page's first row, _the whole day_, counts
+every task together — pauses not counted. Reaching it plays a distinct noise once, turns
+the bar clock red for the rest of the day, outranking the amber, and opens a small window
+asking whether to end the day: _End day_ stamps the day, saves and quits, _Not yet_ asks
+again a quarter of an hour later. Today's report shows the count behind it.
 
-**Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
+**Clean up.** Menu → _groom_ lists every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.
 
-**End the day.** Menu → _end day_ shows when the day started, what you worked on, how long
-each took, and the day's total. Day start and end are derived from your activity, never
-typed in. Press _Close day_ to stamp the day as finished — WipTracker saves and quits,
-because a clock left running overnight would credit tomorrow's hours to today. Open tasks
-stay on the stack and come back when you start it again. Closing the window without
-pressing the button changes nothing.
+**Look at today, and end the day.** Menu → _today_ shows when the day started, what you
+worked on, how long each took, and the day's total; it can be looked at any time. Day
+start and end are derived from your activity, never typed in. Its one button, _End day_,
+stamps the day as finished — WipTracker saves and quits, because a clock left running
+overnight would credit tomorrow's hours to today. Open tasks stay on the stack and come
+back when you start it again.
 
-**Ask to be reminded of the pause.** _pause reminder at_, in the timers window, takes a
+**Ask to be reminded of the pause.** _pause reminder at_, on the timers page, takes a
 clock time such as `12:30`. At that time, once a day, a small window asks whether it is
 time for a pause: _Pause now_ starts it from that moment, _Not now_ asks again a quarter
 of an hour later until the pause is running. A pause already running then is taken as the
@@ -184,7 +188,8 @@ the task has been focused, asks when you really stopped, and tells what it would
 before you press _End there_: the day of the cut ends at that moment and is closed, days
 in between that held nothing else disappear, and the task keeps running from now.
 WipTracker offers this by itself on the first click or keystroke after a task ran through
-midnight, once; _Not now_ puts it away. The same window takes a forgotten pause off the
+midnight, once; _Not now_ puts it away. A start on a new day offers nothing: the hours
+WipTracker was closed were never counted. The same page takes a forgotten pause off the
 same day.
 
 **Look back.** Menu → _week_ shows a grid: one row per task, one column per weekday, plus
@@ -199,13 +204,13 @@ they simply stop cluttering this list, and still appear in the week overview. Th
 greyed out when there is nothing to revive, and the window closes itself once the last one
 is back.
 
-**Export the numbers.** The end-day and week windows have an _export_ button that copies
+**Export the numbers.** Today's report and the week have an _export_ button that copies
 the data to the clipboard as JSON — one row per task per day, `{ "date", "task",
-"seconds" }`, the same shape from both windows. `pause` and finished tasks are included;
+"seconds" }`, the same shape from both. `pause` and finished tasks are included;
 filter downstream if you are booking billable time.
 
 **The clock shows today.** The number on the bar is the time spent on this task *today*,
-which is what the timers and the end-day report count. Hover it for the all-time total, or
+which is what the timers and today's report count. Hover it for the all-time total, or
 open the task stack, which lists both. Menu → _hide duration_ leaves just the task name.
 
 **Move the bar.** Drag the dotted handle at the left edge. That is the only part that
