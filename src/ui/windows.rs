@@ -1,4 +1,4 @@
-//! The windows behind the menu: the task stack, timers, groom, end day, week and revive.
+//! The window behind the menu, one page per tab, and the small windows that ask something.
 //!
 //! Each is a normal decorated window of its own, so it can be moved, resized and closed
 //! like any other; the bar keeps working while they are open.
@@ -877,13 +877,13 @@ fn end_day(
         ui.add_space(14.0);
         export_button(ui, tracker, &[today], &mut copied, &mut payload);
         ui.add_space(10.0);
-        if widgets::action_button(ui, "Close day", true).clicked() {
+        if widgets::action_button(ui, "End day", true).clicked() {
             close_day = true;
         }
         ui.add_space(4.0);
         ui.label(
             RichText::new(
-                "Closing the day stamps its end time, saves, and quits. Open tasks stay \
+                "Ending the day stamps its end time, saves, and quits. Open tasks stay \
                      on the stack for tomorrow.",
             )
             .color(palette.text_dim)

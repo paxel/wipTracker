@@ -95,8 +95,8 @@ To have it start with your session, use menu → _start with my session_. It wri
 launchd agent to `~/Library/LaunchAgents/dev.paxel.wiptracker.plist`, which macOS lists
 under _System Settings → General → Login Items → Allow in the Background_; switching it off
 in the menu deletes the file again. The bar has no Dock icon and no Cmd-Tab entry by
-design — it is a one-line window, not an application to switch to — so _end day_ is how
-you close it.
+design — it is a one-line window, not an application to switch to — so _End day_ in
+today's report is how you close it.
 
 Or use a package manager — each release pushes a formula and a manifest.
 
@@ -163,17 +163,17 @@ when you stopped, not from when it was noticed. Off means your input is never wa
 every task together — pauses not counted. Reaching it plays a distinct noise and turns the
 bar clock red for the rest of the day, outranking the amber. The alarm then repeats every
 ten minutes until menu → _mute day reminder_ silences it; the muting lasts until midnight,
-so tomorrow it reminds again on its own. The end-day report shows the count behind it.
+so tomorrow it reminds again on its own. Today's report shows the count behind it.
 
 **Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.
 
-**End the day.** Menu → _end day_ shows when the day started, what you worked on, how long
-each took, and the day's total. Day start and end are derived from your activity, never
-typed in. Press _Close day_ to stamp the day as finished — WipTracker saves and quits,
-because a clock left running overnight would credit tomorrow's hours to today. Open tasks
-stay on the stack and come back when you start it again. Closing the window without
-pressing the button changes nothing.
+**Look at today, and end the day.** Menu → _today_ shows when the day started, what you
+worked on, how long each took, and the day's total; it can be looked at any time. Day
+start and end are derived from your activity, never typed in. Its one button, _End day_,
+stamps the day as finished — WipTracker saves and quits, because a clock left running
+overnight would credit tomorrow's hours to today. Open tasks stay on the stack and come
+back when you start it again.
 
 **Ask to be reminded of the pause.** _pause reminder at_, in the timers window, takes a
 clock time such as `12:30`. At that time, once a day, a small window asks whether it is
@@ -204,13 +204,13 @@ they simply stop cluttering this list, and still appear in the week overview. Th
 greyed out when there is nothing to revive, and the window closes itself once the last one
 is back.
 
-**Export the numbers.** The end-day and week windows have an _export_ button that copies
+**Export the numbers.** Today's report and the week have an _export_ button that copies
 the data to the clipboard as JSON — one row per task per day, `{ "date", "task",
-"seconds" }`, the same shape from both windows. `pause` and finished tasks are included;
+"seconds" }`, the same shape from both. `pause` and finished tasks are included;
 filter downstream if you are booking billable time.
 
 **The clock shows today.** The number on the bar is the time spent on this task *today*,
-which is what the timers and the end-day report count. Hover it for the all-time total, or
+which is what the timers and today's report count. Hover it for the all-time total, or
 open the task stack, which lists both. Menu → _hide duration_ leaves just the task name.
 
 **Move the bar.** Drag the dotted handle at the left edge. That is the only part that

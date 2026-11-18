@@ -365,13 +365,13 @@ fn closing_the_day_quits_the_app() {
     };
     let pointer = PointerGuard(desk.pointer());
     let (_, (x, y, _, _)) = open_menu(&desk, &app).expect("the burger opens the menu");
-    // "end day" is the ninth item, below two separators.
+    // "today" is the ninth item, below two separators.
     click_at(x as i32 + 135, y as i32 + menu_row_y(8, 2));
     let report = desk
         .wait_for(app.pid(), "WipTracker — Today", PATIENCE)
         .expect("the tabbed window opens on today's report");
     let (rx, ry, _, _) = desk.geometry(report).expect("report geometry");
-    // "Close day" sits under the tabs and the export button; day empty, so the layout is
+    // "End day" sits under the tabs and the export button; day empty, so the layout is
     // fixed.
     click_at(rx as i32 + 38, ry as i32 + 299);
     let until = Instant::now() + PATIENCE;
@@ -384,6 +384,6 @@ fn closing_the_day_quits_the_app() {
         }
         std::thread::sleep(Duration::from_millis(300));
     };
-    assert!(exited, "closing the day saves and quits");
+    assert!(exited, "ending the day saves and quits");
     drop(pointer);
 }

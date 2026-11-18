@@ -23,7 +23,7 @@ pub enum MenuAction {
     OpenStack,
     OpenTimer,
     OpenGroom,
-    OpenEndDay,
+    OpenToday,
     OpenEndEarlier,
     OpenWeek,
     OpenRevive,
@@ -222,10 +222,10 @@ fn rows(context: &MenuContext<'_>) -> Vec<Row> {
             "Finish several open tasks at once",
         ),
         item(
-            "end day",
-            MenuAction::OpenEndDay,
+            "today",
+            MenuAction::OpenToday,
             true,
-            "Today's report; closing the day saves and quits",
+            "Today's report; its End day button saves and quits",
         ),
         item(
             "end earlier",

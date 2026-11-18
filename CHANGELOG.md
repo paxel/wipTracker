@@ -9,6 +9,9 @@ All notable changes to WipTracker are documented in this file.
 - The task stack, revive, the timers, groom, the day's report, end earlier and the week are
   the tabs of one window, where each used to open a window of its own
   ([wip-1025](https://github.com/paxel/wipTracker/issues/49)).
+- Today's report is the tab "Today" and can be looked at without ending anything; its one
+  button is now called _End day_, and the menu entry _today_
+  ([wip-1027](https://github.com/paxel/wipTracker/issues/51)).
 
 ### Fixed
 

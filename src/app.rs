@@ -819,7 +819,7 @@ impl WipTracker {
                 self.apply_palette(ctx);
             }
             MenuAction::OpenGroom => self.windows.tab = Some(Tab::Groom),
-            MenuAction::OpenEndDay => self.windows.tab = Some(Tab::Today),
+            MenuAction::OpenToday => self.windows.tab = Some(Tab::Today),
             MenuAction::OpenEndEarlier => self.windows.tab = Some(Tab::EndEarlier),
             MenuAction::OpenWeek => self.windows.tab = Some(Tab::Week),
             MenuAction::OpenRevive => self.windows.tab = Some(Tab::Revive),
@@ -1011,7 +1011,7 @@ impl eframe::App for WipTracker {
 
         let name = self.tracker.focused_name().to_owned();
         // The clock shows today's time so that the number agrees with the task's timer and
-        // with the end-day report; the all-time total lives in the tooltip.
+        // with today's report; the all-time total lives in the tooltip.
         let clock_parts = self.show_duration.then(|| self.clock_parts(now)).flatten();
         let clock = clock_parts
             .as_ref()
@@ -1163,7 +1163,7 @@ impl eframe::App for WipTracker {
 
         self.maybe_save();
 
-        // Closing the day is the end of the session: there is nothing left for the bar to
+        // Ending the day is the end of the session: there is nothing left for the bar to
         // show, and a clock left running overnight would credit the wrong day.
         if outcome.day_closed {
             self.journal("day closed");

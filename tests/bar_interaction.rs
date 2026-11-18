@@ -159,7 +159,7 @@ fn the_menu_lists_its_entries_and_the_open_tasks() {
         "select",
         "timer",
         "groom",
-        "end day",
+        "today",
         "week",
         "revive",
         "window frame",

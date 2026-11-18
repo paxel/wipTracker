@@ -151,7 +151,7 @@ fn closing_the_day_marks_it_closed() {
     harness.state_mut().windows_mut().tab = Some(Tab::Today);
     harness.run();
 
-    harness.get_by_label_contains("Close day").click_accesskit();
+    harness.get_by_label("End day").click_accesskit();
     harness.run();
 
     let today = Local::now().date_naive();
@@ -577,7 +577,7 @@ fn the_menu_opens_each_window() {
             },
         ),
         (
-            "end day",
+            "today",
             |app| app.windows().tab == Some(Tab::Today),
             |app| {
                 app.windows_mut().tab = None;
