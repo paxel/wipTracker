@@ -326,3 +326,37 @@ pub fn sweep(ui: &Ui, rect: egui::Rect, progress: f32, color: Color32) {
     );
     ui.painter().rect_filled(filled, 4.0, color);
 }
+
+/// One tab of the tabbed window: a pill when it is the page on screen, plain text that
+/// lights up under the pointer otherwise. Painted rather than themed, for the reason
+/// [`action_button`] is.
+pub fn tab_button(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    let palette = theme::current();
+    let font = egui::FontId::proportional(14.0);
+    let color = if selected {
+        palette.text
+    } else {
+        palette.text_dim
+    };
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, color));
+    let pad = egui::vec2(12.0, 6.0);
+    let (rect, response) = ui.allocate_exact_size(galley.rect.expand2(pad).size(), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, selected, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    if selected {
+        ui.painter().rect(
+            rect,
+            6.0,
+            palette.button_active,
+            Stroke::new(1.0, palette.border),
+            egui::StrokeKind::Inside,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 6.0, palette.button_idle);
+    }
+    ui.painter().galley(rect.shrink2(pad).min, galley, color);
+    response
+}

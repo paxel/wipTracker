@@ -8,6 +8,7 @@ use wiptracker::domain::task::PAUSE_NAME;
 use wiptracker::domain::tracker::Tracker;
 use wiptracker::theme;
 use wiptracker::ui::bar::{HOLD_FINISH, HOLD_QUICK};
+use wiptracker::ui::windows::Tab;
 
 /// How far each frame moves the clock on. Coarse on purpose: a two-second hold is then
 /// five frames rather than a two-second sleep.
@@ -197,7 +198,7 @@ fn picking_a_task_from_the_stack_window_focuses_it() {
     tracker.push_new_task(at(10));
 
     let mut harness = harness(tracker);
-    harness.state_mut().windows_mut().stack = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Stack);
     settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "new task 2");
 
@@ -207,7 +208,7 @@ fn picking_a_task_from_the_stack_window_focuses_it() {
     settle(&mut harness);
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
     assert!(
-        !harness.state().windows().stack,
+        harness.state().windows().tab != Some(Tab::Stack),
         "picking a task closes the stack window"
     );
 }
@@ -220,7 +221,7 @@ fn the_select_entry_opens_the_stack_window() {
 
     harness.get_by_label_contains("select").click_accesskit();
     settle(&mut harness);
-    assert!(harness.state().windows().stack);
+    assert!(harness.state().windows().tab == Some(Tab::Stack));
 }
 
 #[test]
@@ -241,11 +242,11 @@ fn a_new_task_opens_its_name_for_editing() {
 fn clicking_the_fork_opens_the_stack_window() {
     let mut harness = harness(Tracker::new(at(9)));
     settle(&mut harness);
-    assert!(!harness.state().windows().stack);
+    assert!(harness.state().windows().tab != Some(Tab::Stack));
 
     harness.get_by_label("task stack").click();
     settle(&mut harness);
-    assert!(harness.state().windows().stack);
+    assert!(harness.state().windows().tab == Some(Tab::Stack));
 }
 
 #[test]
@@ -271,7 +272,7 @@ fn holding_the_fork_takes_a_break() {
             .any(|task| task.name == "write the report")
     );
     assert!(
-        !harness.state().windows().stack,
+        harness.state().windows().tab != Some(Tab::Stack),
         "the hold replaces the click, it does not also fire it"
     );
 }
@@ -415,7 +416,7 @@ fn holding_the_burger_opens_the_timer() {
     settle(&mut harness);
 
     hold(&mut harness, button_center(0.0), HOLD_QUICK);
-    assert!(harness.state().windows().timer);
+    assert!(harness.state().windows().tab == Some(Tab::Timers));
     assert!(
         !harness.state().is_menu_open(),
         "the hold replaces the click, so the menu stays shut"
@@ -429,7 +430,7 @@ fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
 
     hold(&mut empty, button_center(1.0), HOLD_QUICK);
     assert!(
-        !empty.state().windows().revive,
+        empty.state().windows().tab != Some(Tab::Revive),
         "nothing has been finished, so the hold leads nowhere"
     );
 
@@ -444,5 +445,5 @@ fn holding_plus_opens_revive_only_when_there_is_something_to_revive() {
     let mut revivable = harness(tracker);
     settle(&mut revivable);
     hold(&mut revivable, button_center(1.0), HOLD_QUICK);
-    assert!(revivable.state().windows().revive);
+    assert!(revivable.state().windows().tab == Some(Tab::Revive));
 }

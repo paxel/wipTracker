@@ -130,8 +130,12 @@ repeats, so `new task 7` means the same task tomorrow.
 the bar; the one underneath stops collecting time but stays open.
 
 **Switch back.** Click the fork button, or pick _select_ from the menu. The task stack
-opens in its own window: focused task first, everything else in stack order, `pause` last,
-each row with today's time and its total. Click one to work on it again.
+opens: focused task first, everything else in stack order, `pause` last, each row with
+today's time and its total. Click one to work on it again.
+
+**One window for everything else.** The stack, revive, the timers, groom, today's report,
+end earlier and the week are the tabs of one window beside the bar. A menu entry or a hold
+on the bar opens it on its tab, and the tabs switch between them from there.
 
 **Pause.** Hold the fork button, or pick `pause` in the task stack. It is a
 permanent task that can never be finished, so pauses show up in the reports like everything

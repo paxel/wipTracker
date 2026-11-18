@@ -19,7 +19,7 @@ use crate::ui::format;
 use crate::ui::hint;
 use crate::ui::menu::{self, MenuAction};
 use crate::ui::place::Placement;
-use crate::ui::windows::{self, OpenWindows};
+use crate::ui::windows::{self, OpenWindows, Tab};
 
 /// Which windowing backend the app asks for on Linux.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -715,10 +715,10 @@ impl WipTracker {
             BarAction::FinishTask => self.finish_task(now),
             BarAction::ToggleMenu => self.toggle_menu(time),
             BarAction::StartRename => self.start_rename(),
-            BarAction::OpenStack => self.windows.stack = true,
+            BarAction::OpenStack => self.windows.tab = Some(Tab::Stack),
             BarAction::SwitchToPause => self.switch_to_pause(now),
-            BarAction::OpenRevive => self.windows.revive = true,
-            BarAction::OpenTimer => self.windows.timer = true,
+            BarAction::OpenRevive => self.windows.tab = Some(Tab::Revive),
+            BarAction::OpenTimer => self.windows.tab = Some(Tab::Timers),
             BarAction::None => {}
         }
     }
@@ -746,8 +746,8 @@ impl WipTracker {
             MenuAction::Rename => self.start_rename(),
             MenuAction::Finish => self.finish_task(now),
             MenuAction::Pause => self.switch_to_pause(now),
-            MenuAction::OpenStack => self.windows.stack = true,
-            MenuAction::OpenTimer => self.windows.timer = true,
+            MenuAction::OpenStack => self.windows.tab = Some(Tab::Stack),
+            MenuAction::OpenTimer => self.windows.tab = Some(Tab::Timers),
             MenuAction::ToggleDuration => {
                 self.show_duration = !self.show_duration;
                 self.dirty = true;
@@ -818,11 +818,11 @@ impl WipTracker {
                 self.hue_shift = None;
                 self.apply_palette(ctx);
             }
-            MenuAction::OpenGroom => self.windows.groom = true,
-            MenuAction::OpenEndDay => self.windows.end_day = true,
-            MenuAction::OpenEndEarlier => self.windows.end_earlier = true,
-            MenuAction::OpenWeek => self.windows.week = true,
-            MenuAction::OpenRevive => self.windows.revive = true,
+            MenuAction::OpenGroom => self.windows.tab = Some(Tab::Groom),
+            MenuAction::OpenEndDay => self.windows.tab = Some(Tab::Today),
+            MenuAction::OpenEndEarlier => self.windows.tab = Some(Tab::EndEarlier),
+            MenuAction::OpenWeek => self.windows.tab = Some(Tab::Week),
+            MenuAction::OpenRevive => self.windows.tab = Some(Tab::Revive),
             MenuAction::None => {}
         }
     }
@@ -851,7 +851,6 @@ impl WipTracker {
             return;
         }
         self.end_earlier_offered_for = Some(since);
-        self.windows.end_earlier = true;
         self.windows.end_earlier_offered = true;
         self.journal(&format!(
             "end earlier: offered, '{}' focused since {}",

@@ -7,6 +7,7 @@ use egui_kittest::Harness;
 use wiptracker::app::WipTracker;
 use wiptracker::domain::tracker::Tracker;
 use wiptracker::theme;
+use wiptracker::ui::windows::Tab;
 
 fn at(day: u32, hour: u32) -> DateTime<Local> {
     Local
@@ -40,33 +41,53 @@ fn harness(tracker: Tracker) -> Harness<'static, WipTracker> {
 }
 
 #[test]
-fn every_report_window_can_be_opened() {
-    let mut harness = harness(populated());
-    {
-        let windows = harness.state_mut().windows_mut();
-        windows.groom = true;
-        windows.end_day = true;
-        windows.week = true;
-        windows.revive = true;
+fn every_page_of_the_tabbed_window_can_be_opened() {
+    use egui_kittest::kittest::Queryable as _;
+    // Something only that page says, to prove its contents really were built.
+    for (tab, proof) in [
+        (Tab::Stack, "Task stack"),
+        (Tab::Revive, "Finished tasks"),
+        (Tab::Timers, "Daily timers"),
+        (Tab::Groom, "Open tasks"),
+        (Tab::Today, "write the report"),
+        (Tab::EndEarlier, "End earlier"),
+        (Tab::Week, "jump to date"),
+    ] {
+        let mut harness = harness(populated());
+        harness.state_mut().windows_mut().tab = Some(tab);
+        harness.run();
+        harness.run();
+        assert!(
+            harness.query_all_by_label_contains(proof).count() > 0,
+            "{tab:?} should show {proof:?}"
+        );
+        for other in Tab::ALL {
+            assert!(
+                harness.query_all_by_label(other.label()).count() > 0,
+                "{tab:?} should show the tab {other:?}"
+            );
+        }
     }
-    harness.run();
+}
+
+#[test]
+fn clicking_a_tab_switches_the_page() {
+    use egui_kittest::kittest::Queryable as _;
+    // Big enough to hold the tabbed window, which the test draws inline.
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(720.0, 460.0))
+        .wgpu()
+        .build_eframe(|cc| WipTracker::with_tracker(cc, populated()));
+    harness.state_mut().windows_mut().tab = Some(Tab::Stack);
     harness.run();
 
-    // Prove the window contents really were built, not silently skipped.
-    use egui_kittest::kittest::Queryable as _;
-    assert!(harness.query_all_by_label_contains("Open tasks").count() > 0);
-    assert!(
-        harness
-            .query_all_by_label_contains("Finished tasks")
-            .count()
-            > 0
-    );
-    assert!(
-        harness
-            .query_all_by_label_contains("write the report")
-            .count()
-            > 0
-    );
+    harness
+        .get_by_role_and_label(egui::Role::Tab, "Week")
+        .click();
+    harness.run();
+
+    assert_eq!(harness.state().windows().tab, Some(Tab::Week));
+    assert!(harness.query_all_by_label_contains("jump to date").count() > 0);
 }
 
 /// Draws the end-day and the week window into PNGs under `target/render`, so a change to
@@ -74,16 +95,12 @@ fn every_report_window_can_be_opened() {
 /// window, since the report windows are drawn inline in the test.
 #[test]
 fn the_end_day_and_week_windows_render() {
-    for (name, size) in [("end_day", [460.0, 360.0]), ("week", [720.0, 400.0])] {
+    for (name, tab) in [("end_day", Tab::Today), ("week", Tab::Week)] {
         let mut harness = Harness::builder()
-            .with_size(egui::vec2(size[0], size[1]))
+            .with_size(egui::vec2(720.0, 460.0))
             .wgpu()
             .build_eframe(|cc| WipTracker::with_tracker(cc, populated()));
-        {
-            let windows = harness.state_mut().windows_mut();
-            windows.end_day = name == "end_day";
-            windows.week = name == "week";
-        }
+        harness.state_mut().windows_mut().tab = Some(tab);
         harness.run();
         let image = harness.render().expect("wgpu render");
         std::fs::create_dir_all("target/render").expect("create render dir");
@@ -95,15 +112,11 @@ fn the_end_day_and_week_windows_render() {
 
 #[test]
 fn the_windows_survive_an_empty_tracker() {
-    let mut harness = harness(Tracker::new(at(10, 9)));
-    {
-        let windows = harness.state_mut().windows_mut();
-        windows.groom = true;
-        windows.end_day = true;
-        windows.week = true;
-        windows.revive = true;
+    for tab in Tab::ALL {
+        let mut harness = harness(Tracker::new(at(10, 9)));
+        harness.state_mut().windows_mut().tab = Some(tab);
+        harness.run();
     }
-    harness.run();
 }
 
 #[test]
@@ -111,7 +124,7 @@ fn groom_finishes_the_selected_tasks() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().groom = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Groom);
     harness.run();
 
     // Tick the one open task, then finish it.
@@ -135,7 +148,7 @@ fn closing_the_day_marks_it_closed() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().end_day = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Today);
     harness.run();
 
     harness.get_by_label_contains("Close day").click_accesskit();
@@ -156,7 +169,7 @@ fn the_revive_window_closes_once_nothing_is_left_to_revive() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().revive = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Revive);
     harness.run();
 
     harness
@@ -165,7 +178,7 @@ fn the_revive_window_closes_once_nothing_is_left_to_revive() {
     harness.run();
 
     assert!(
-        !harness.state().windows().revive,
+        harness.state().windows().tab != Some(Tab::Revive),
         "the last finished task was revived, so the window should be gone"
     );
 }
@@ -175,7 +188,7 @@ fn reviving_from_the_window_puts_the_task_back_on_top() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().revive = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Revive);
     harness.run();
 
     harness
@@ -224,7 +237,7 @@ fn the_timer_window_sets_a_task_and_the_default() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().timer = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Timers);
     harness.run();
 
     // Open the picker for the default row, then choose one hour.
@@ -260,7 +273,7 @@ fn the_timer_window_sets_the_day_timer() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().timer = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Timers);
     harness.run();
 
     harness
@@ -310,7 +323,7 @@ fn the_day_window_exports_json_to_the_clipboard() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().end_day = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Today);
     harness.run();
 
     harness.get_by_label("export").click_accesskit();
@@ -544,51 +557,51 @@ fn the_menu_opens_each_window() {
     let entries: &[MenuEntryCheck] = &[
         (
             "select",
-            |app| app.windows().stack,
+            |app| app.windows().tab == Some(Tab::Stack),
             |app| {
-                app.windows_mut().stack = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "timer",
-            |app| app.windows().timer,
+            |app| app.windows().tab == Some(Tab::Timers),
             |app| {
-                app.windows_mut().timer = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "groom",
-            |app| app.windows().groom,
+            |app| app.windows().tab == Some(Tab::Groom),
             |app| {
-                app.windows_mut().groom = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "end day",
-            |app| app.windows().end_day,
+            |app| app.windows().tab == Some(Tab::Today),
             |app| {
-                app.windows_mut().end_day = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "end earlier",
-            |app| app.windows().end_earlier,
+            |app| app.windows().tab == Some(Tab::EndEarlier),
             |app| {
-                app.windows_mut().end_earlier = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "week",
-            |app| app.windows().week,
+            |app| app.windows().tab == Some(Tab::Week),
             |app| {
-                app.windows_mut().week = false;
+                app.windows_mut().tab = None;
             },
         ),
         (
             "revive",
-            |app| app.windows().revive,
+            |app| app.windows().tab == Some(Tab::Revive),
             |app| {
-                app.windows_mut().revive = false;
+                app.windows_mut().tab = None;
             },
         ),
     ];
@@ -726,7 +739,7 @@ fn the_timer_window_sets_the_pause_reminder() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().timer = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Timers);
     harness.run();
 
     harness
@@ -822,14 +835,17 @@ fn the_end_earlier_window_cuts_the_span() {
 
     let (tracker, since) = running_since_yesterday();
     let mut harness = harness(tracker);
-    harness.state_mut().windows_mut().end_earlier = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::EndEarlier);
     harness.run();
 
     harness.get_by_label("End there").click_accesskit();
     harness.run();
 
     let tracker = harness.state().tracker();
-    assert!(!harness.state().windows().end_earlier, "the window closed");
+    assert!(
+        harness.state().windows().tab != Some(Tab::EndEarlier),
+        "the window closed"
+    );
     assert_eq!(tracker.focused_name(), "write the report");
     assert!(tracker.focused_since() > since, "a fresh span");
     let yesterday = tracker.day(since.date_naive()).expect("yesterday stays");
@@ -853,7 +869,7 @@ fn a_span_through_midnight_is_offered_once_on_the_first_press() {
     let mut harness = harness(tracker);
     harness.run();
     assert!(
-        !harness.state().windows().end_earlier,
+        harness.state().windows().tab != Some(Tab::EndEarlier),
         "nothing is offered before the user does anything"
     );
 
@@ -879,16 +895,23 @@ fn a_span_through_midnight_is_offered_once_on_the_first_press() {
         harness.run();
     };
     press(&mut harness);
-    assert!(harness.state().windows().end_earlier, "offered");
-    assert!(harness.state().windows().end_earlier_offered);
+    assert!(harness.state().windows().end_earlier_offered, "offered");
+    assert_eq!(
+        harness.state().windows().tab,
+        None,
+        "the offer is a window of its own, not a page of the tabbed one"
+    );
 
     harness.get_by_label("Not now").click_accesskit();
     harness.run();
-    assert!(!harness.state().windows().end_earlier);
+    assert!(!harness.state().windows().end_earlier_offered);
     assert_eq!(harness.state().tracker().focused_name(), "write the report");
 
     press(&mut harness);
-    assert!(!harness.state().windows().end_earlier, "once per span");
+    assert!(
+        !harness.state().windows().end_earlier_offered,
+        "once per span"
+    );
 }
 
 /// Something that is not a clock time is named as such and sets nothing.
@@ -897,7 +920,7 @@ fn a_bad_reminder_time_is_refused() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().timer = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Timers);
     harness.run();
 
     harness
@@ -914,7 +937,10 @@ fn a_bad_reminder_time_is_refused() {
 
     assert_eq!(harness.state().tracker().pause_reminder(), None);
     assert!(harness.query_all_by_label("not a time").count() > 0);
-    assert!(harness.state().windows().timer, "the window stays open");
+    assert!(
+        harness.state().windows().tab == Some(Tab::Timers),
+        "the window stays open"
+    );
 }
 
 /// The idle row offers minutes, a task row offers hours, and each sets its own target.
@@ -923,7 +949,7 @@ fn the_timer_window_sets_the_idle_pause_and_a_task() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().timer = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Timers);
     harness.run();
 
     harness
@@ -960,7 +986,7 @@ fn the_week_window_moves_between_weeks() {
     use egui_kittest::kittest::Queryable as _;
 
     let mut harness = harness(populated());
-    harness.state_mut().windows_mut().week = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::Week);
     harness.run();
 
     let this_week = Local::now().date_naive().iso_week().week();
@@ -1037,7 +1063,7 @@ fn a_bad_cut_is_refused() {
 
     let mut harness = harness(populated());
     let since = harness.state().tracker().focused_since();
-    harness.state_mut().windows_mut().end_earlier = true;
+    harness.state_mut().windows_mut().tab = Some(Tab::EndEarlier);
     harness.run();
 
     // The field is prefilled with the span's start; typing onto it spoils the time.
@@ -1049,6 +1075,9 @@ fn a_bad_cut_is_refused() {
     assert!(harness.query_all_by_label("not a day and a time").count() > 0);
     harness.get_by_label("End there").click_accesskit();
     harness.run();
-    assert!(harness.state().windows().end_earlier, "the window stays");
+    assert!(
+        harness.state().windows().tab == Some(Tab::EndEarlier),
+        "the window stays"
+    );
     assert_eq!(harness.state().tracker().focused_since(), since);
 }
