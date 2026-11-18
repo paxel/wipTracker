@@ -864,7 +864,7 @@ impl WipTracker {
         let Some(rename) = &mut self.rename else {
             return false;
         };
-        let id = egui::Id::new("rename_editor");
+        let id = egui::Id::unique("rename_editor");
         // Both colours are named here rather than left to the theme. The field's
         // background otherwise comes from `visuals.extreme_bg_color`, and a mac user saw
         // white text in a white field — whatever reaches the style on that platform, an

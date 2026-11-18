@@ -148,9 +148,8 @@ pub fn grip(ui: &mut Ui) -> Response {
     let size = egui::vec2(theme::GRIP_WIDTH, theme::BUTTON_SIZE.y);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
     let enabled = ui.is_enabled();
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Other, enabled, "move the bar")
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, enabled, "move the bar"));
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -177,8 +176,7 @@ pub fn grip(ui: &mut Ui) -> Response {
 pub fn icon_button(ui: &mut Ui, icon: Icon, hold: f32, armed: bool) -> (Response, Press) {
     let (rect, response) = ui.allocate_exact_size(theme::BUTTON_SIZE, Sense::click());
     let enabled = ui.is_enabled();
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, icon.label()));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, icon.label()));
     let press = track_press(ui, &response, hold, armed);
     if !ui.is_rect_visible(rect) {
         return (response, press);
@@ -253,7 +251,7 @@ pub fn menu_row(ui: &mut Ui, label: &str, enabled: bool) -> Response {
         Sense::hover()
     };
     let (rect, response) = ui.allocate_exact_size(size, sense);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -291,7 +289,7 @@ pub fn action_button(ui: &mut Ui, label: &str, primary: bool) -> Response {
     let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, palette.text));
     let pad = egui::vec2(14.0, 6.0);
     let (rect, response) = ui.allocate_exact_size(galley.rect.expand2(pad).size(), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     if !ui.is_rect_visible(rect) {
         return response;
     }
