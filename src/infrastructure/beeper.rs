@@ -88,30 +88,26 @@ const TASK_TONES: Tones = &[(880.0, 160), (1320.0, 220)];
 const DAY_TONES: Tones = &[(1320.0, 220), (880.0, 220), (587.0, 380)];
 
 fn play(tones: Tones) {
-    let (stream, handle) = match rodio::OutputStream::try_default() {
+    let mut output = match rodio::DeviceSinkBuilder::open_default_sink() {
         Ok(output) => output,
         Err(error) => {
             report(&error.to_string());
             return;
         }
     };
-    let sink = match rodio::Sink::try_new(&handle) {
-        Ok(sink) => sink,
-        Err(error) => {
-            report(&error.to_string());
-            return;
-        }
-    };
+    // Dropping the output after the last tone is the plan, not something to print.
+    output.log_on_drop(false);
+    let player = rodio::Player::connect_new(output.mixer());
 
     for (frequency, millis) in tones {
-        sink.append(
+        player.append(
             SineWave::new(*frequency)
                 .take_duration(Duration::from_millis(*millis))
                 .amplify(0.15),
         );
     }
-    sink.sleep_until_end();
-    drop(stream);
+    player.sleep_until_end();
+    drop(output);
 }
 
 #[cfg(test)]
