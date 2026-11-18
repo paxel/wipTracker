@@ -661,13 +661,6 @@ fn the_menu_drives_the_task_actions() {
     harness.get_by_label("rename").click_accesskit();
     harness.run();
     assert!(harness.state().is_renaming());
-
-    harness.state_mut().set_menu_open(true);
-    harness.run();
-    harness.get_by_label("mute day reminder").click_accesskit();
-    harness.run();
-    let today = Local::now().date_naive();
-    assert!(harness.state().tracker().nag_muted(today));
 }
 
 /// The menu toggle flips the taskbar preference both ways. It is a stored preference —
@@ -1054,6 +1047,76 @@ fn a_reached_day_timer_sounds_the_day_alarm() {
         DAY_SOUND
     );
     assert_eq!(harness.state().day_alarms_sounded(), 1);
+    assert!(
+        harness.state().windows().day_over,
+        "the alarm comes with the question whether to end the day"
+    );
+}
+
+/// A tracker whose day timer has just been reached, in an app that makes no noise.
+fn day_timer_reached() -> Harness<'static, WipTracker> {
+    let mut tracker = Tracker::new(at(10, 9));
+    let id = tracker.push_new_task(at(10, 9));
+    tracker.rename(id, "write the report").expect("rename");
+    tracker.set_day_timer(std::time::Duration::from_secs(1));
+    tracker.accrue(at(10, 10));
+
+    let alarm = SilentAlarm(std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let mut harness = Harness::builder()
+        .with_size(theme::bar_size(wiptracker::app::prefers_decorations()))
+        .wgpu()
+        .build_eframe(move |cc| {
+            let mut app = WipTracker::with_tracker(cc, tracker);
+            app.set_alarm(Box::new(alarm));
+            app
+        });
+    harness.run();
+    harness.run();
+    harness
+}
+
+/// "Not yet" puts the question away, leaves the task running, and does not sound again.
+#[test]
+fn not_yet_leaves_the_day_open() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = day_timer_reached();
+    assert!(harness.query_all_by_label("End the day?").count() > 0);
+
+    harness.get_by_label("Not yet").click_accesskit();
+    harness.run();
+    harness.run();
+
+    assert!(!harness.state().windows().day_over);
+    assert_eq!(harness.state().tracker().focused_name(), "write the report");
+    assert_eq!(harness.state().day_alarms_sounded(), 1);
+    let today = Local::now().date_naive();
+    assert!(
+        !harness
+            .state()
+            .tracker()
+            .day(today)
+            .is_some_and(|record| record.closed)
+    );
+}
+
+/// "End day" in the question does what the button in today's report does.
+#[test]
+fn end_day_in_the_question_closes_the_day() {
+    use egui_kittest::kittest::Queryable as _;
+
+    let mut harness = day_timer_reached();
+    harness.get_by_label("End day").click_accesskit();
+    harness.run();
+
+    let today = Local::now().date_naive();
+    assert!(
+        harness
+            .state()
+            .tracker()
+            .day(today)
+            .is_some_and(|record| record.closed)
+    );
 }
 
 /// A cut that is not a time is named as such, and the button does nothing.

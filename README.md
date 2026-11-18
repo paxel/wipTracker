@@ -159,11 +159,11 @@ you choose a span. Chosen, WipTracker switches to `pause` once keyboard and mous
 been quiet that long, and takes the quiet minutes off the task — the pause counts from
 when you stopped, not from when it was noticed. Off means your input is never watched.
 
-**Set a limit for the whole day.** The same window's first row, _the whole day_, counts
-every task together — pauses not counted. Reaching it plays a distinct noise and turns the
-bar clock red for the rest of the day, outranking the amber. The alarm then repeats every
-ten minutes until menu → _mute day reminder_ silences it; the muting lasts until midnight,
-so tomorrow it reminds again on its own. Today's report shows the count behind it.
+**Set a limit for the whole day.** The same page's first row, _the whole day_, counts
+every task together — pauses not counted. Reaching it plays a distinct noise once, turns
+the bar clock red for the rest of the day, outranking the amber, and opens a small window
+asking whether to end the day: _End day_ stamps the day, saves and quits, _Not yet_ asks
+again a quarter of an hour later. Today's report shows the count behind it.
 
 **Clean up.** Menu → _groom_ opens a window listing every open task with its total time.
 Tick several and press _Finish selected_ to close them all at once.

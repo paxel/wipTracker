@@ -800,12 +800,6 @@ impl WipTracker {
                     Err(error) => self.notice = Some(format!("Could not change that: {error}")),
                 }
             }
-            MenuAction::ToggleNag => {
-                let day = now.date_naive();
-                let muted = self.tracker.nag_muted(day);
-                self.tracker.set_nag_muted(day, !muted);
-                self.dirty = true;
-            }
             MenuAction::ToggleLightMode => {
                 self.light_mode = !self.light_mode;
                 self.apply_palette(ctx);
@@ -946,7 +940,13 @@ impl eframe::App for WipTracker {
             if let Some(alarm) = &self.alarm {
                 alarm.sound_day_over();
             }
+            self.windows.day_over = true;
+            self.journal("day timer: reached, asked whether to end the day");
             self.dirty = true;
+        }
+        if self.tracker.take_due_day_prompt(now) {
+            self.windows.day_over = true;
+            self.journal("day timer: asked again");
         }
         if self.tracker.take_due_pause_reminder(now) {
             self.windows.pause_reminder = true;
@@ -1086,8 +1086,6 @@ impl eframe::App for WipTracker {
                     decorated: self.is_decorated(),
                     taskbar_shown: self.shows_in_taskbar(),
                     hints_shown: self.hints,
-                    day_timer_set: !self.tracker.day_timer().is_zero(),
-                    nag_muted: self.tracker.nag_muted(now.date_naive()),
                     autostart: self.autostart,
                     light_mode: self.light_mode,
                     palette_shuffled: self.hue_shift.is_some(),
@@ -1141,6 +1139,23 @@ impl eframe::App for WipTracker {
             }
         }
 
+        let mut day_ended = false;
+        if self.windows.day_over {
+            let worked = self.tracker.worked_on(now.date_naive());
+            match windows::day_over(&ctx, &mut self.windows, worked) {
+                windows::DayOverChoice::EndDay => {
+                    self.tracker.close_day(now);
+                    self.dirty = true;
+                    day_ended = true;
+                }
+                windows::DayOverChoice::NotYet => {
+                    self.journal("day timer: not yet");
+                    self.tracker.snooze_day_prompt(now);
+                }
+                windows::DayOverChoice::None => {}
+            }
+        }
+
         self.offer_end_earlier(&ctx, now);
 
         let outcome = windows::show_all(&ctx, &mut self.windows, &mut self.tracker, now);
@@ -1165,7 +1180,7 @@ impl eframe::App for WipTracker {
 
         // Ending the day is the end of the session: there is nothing left for the bar to
         // show, and a clock left running overnight would credit the wrong day.
-        if outcome.day_closed {
+        if outcome.day_closed || day_ended {
             self.journal("day closed");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

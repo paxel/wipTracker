@@ -349,8 +349,8 @@ fn the_taskbar_toggle_applies_while_running() {
         .wait_for(app.pid(), "WipTracker", PATIENCE)
         .expect("the bar window appears");
     let (_, (x, y, _, _)) = open_menu(&desk, &app).expect("the burger opens the menu");
-    // "leave the taskbar" is the seventeenth item, below three separators.
-    click_at(x as i32 + 135, y as i32 + menu_row_y(16, 3));
+    // "leave the taskbar" is the sixteenth item, below three separators.
+    click_at(x as i32 + 135, y as i32 + menu_row_y(15, 3));
     assert!(
         desk.wait_for_state(bar, desk.skip_taskbar, true, PATIENCE),
         "the toggle takes the bar out of the taskbar without a restart"

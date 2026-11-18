@@ -66,6 +66,8 @@ pub struct OpenWindows {
     pub launcher_offer: bool,
     /// The pause reminder asking for a pause.
     pub pause_reminder: bool,
+    /// The question whether to end the day, asked when the day's timer is reached.
+    pub day_over: bool,
     /// The app's own offer to end the focused task's span earlier, a window of its own
     /// with a "not now" button. Ending earlier by hand is [`Tab::EndEarlier`].
     pub end_earlier_offered: bool,
@@ -226,6 +228,67 @@ pub fn pause_reminder(
         choice = ReminderChoice::NotNow;
     }
     open.pause_reminder = choice == ReminderChoice::None;
+    choice
+}
+
+/// What the user answered when asked whether to end the day.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DayOverChoice {
+    #[default]
+    None,
+    /// Stamp the day's end, save and quit.
+    EndDay,
+    /// Ask again in a quarter of an hour.
+    NotYet,
+}
+
+/// The day's timer is reached: a small window asking whether to end the day.
+///
+/// Closing the window is "not yet" as well: the question comes back, and only ending
+/// the day, or the day ending by itself at midnight, ends it.
+pub fn day_over(ctx: &Context, open: &mut OpenWindows, worked: Duration) -> DayOverChoice {
+    let mut placing = std::mem::take(&mut open.placing);
+    let mut choice = DayOverChoice::None;
+    let mut still_open = true;
+
+    window(
+        ctx,
+        "day_over",
+        "WipTracker — day's time reached",
+        [380.0, 200.0],
+        &mut placing,
+        &mut still_open,
+        |ui| {
+            ui.heading("End the day?");
+            ui.add_space(4.0);
+            ui.label(format!(
+                "The day's timer is reached: {} worked today, pauses not counted. Ending \
+                 the day stamps its end time, saves, and quits.",
+                format::coarse(worked)
+            ));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Not yet asks again in a quarter of an hour.")
+                    .color(theme::current().text_dim)
+                    .small(),
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if widgets::action_button(ui, "End day", true).clicked() {
+                    choice = DayOverChoice::EndDay;
+                }
+                if widgets::action_button(ui, "Not yet", false).clicked() {
+                    choice = DayOverChoice::NotYet;
+                }
+            });
+        },
+    );
+
+    open.placing = placing;
+    if choice == DayOverChoice::None && !still_open {
+        choice = DayOverChoice::NotYet;
+    }
+    open.day_over = choice == DayOverChoice::None;
     choice
 }
 
